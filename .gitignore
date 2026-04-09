@@ -1,0 +1,39 @@
+node_modules/
+.next/
+.env
+dist/
+build/
+.env
+.env.local
+.env.*
+.claude
+# clerk configuration (can include secrets)
+/.clerk/
+
+# Build artifacts
+tsconfig.tsbuildinfo
+
+# Dev / smoke / sample assets — not part of the shipped app
+public/tts-samples/
+scripts/
+docs/
+
+# Editor / OS junk
+nul
+.DS_Store
+Thumbs.db
+
+# Local databases (RuVector knowledge graph)
+ruvector.db
+*.db-journal
+
+# Modal pipeline test artifacts — keep the .py source files, drop logs/binaries
+dev/test/*.log
+dev/test/*.mp4
+dev/test/*.pkl
+dev/test/__pycache__/
+modal_app/__pycache__/
+.modal_secrets.env
+.plan_cache_*.pkl
+dev.log
+scripts/demo-accounts.json
