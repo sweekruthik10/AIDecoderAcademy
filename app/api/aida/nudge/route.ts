@@ -1,6 +1,6 @@
 import { auth } from "@clerk/nextjs/server";
 import OpenAI from "openai";
-import { OBJECTIVES, toLmsId } from "@/lib/objectives";
+import { OBJECTIVES, toLmsId, normalizeObjectiveId } from "@/lib/objectives";
 import { getStagedRubric } from "@/lib/objectiveRubrics";
 
 // Lightweight micro-endpoint for AIDA's "thought bubble" nudges.
@@ -61,7 +61,8 @@ export async function POST(req: Request) {
     let objectiveSummary = "(no active objective — free play)";
     let stepHints        = "";
     if (body.objectiveId) {
-      const objective = OBJECTIVES.find(o => o.id === body.objectiveId);
+      const normalizedObjectiveId = normalizeObjectiveId(body.objectiveId);
+      const objective = OBJECTIVES.find(o => o.id === normalizedObjectiveId);
       if (objective) {
         objectiveSummary =
           `${objective.title}: ${objective.description}`;

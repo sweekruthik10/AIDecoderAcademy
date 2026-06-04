@@ -100,7 +100,7 @@ const canvasSchema = {
   type: "object",
   additionalProperties: false,
   properties: {
-    score:   { type: "integer", minimum: 0, maximum: 100 },
+    score:   { type: "integer" },
     mode:    { type: "string", enum: ["challenge", "nudge", "celebrate"] },
     fieldFeedback: {
       type: "object",
@@ -135,11 +135,11 @@ const createItSchema = {
   additionalProperties: false,
   properties: {
     description:            { type: "string" },
-    panelsDetected:         { type: "integer", minimum: 0, maximum: 10 },
+    panelsDetected:         { type: "integer" },
     characterConsistent:    { type: "boolean" },
     avatarNameVisible:      { type: "boolean" },
     panel3VisuallyDistinct: { type: "boolean" },
-    score:                  { type: "integer", minimum: 0, maximum: 100 },
+    score:                  { type: "integer" },
     summary:                { type: "string" },
   },
   required: ["description", "panelsDetected", "characterConsistent", "avatarNameVisible", "panel3VisuallyDistinct", "score", "summary"],

@@ -402,6 +402,7 @@ export default function ClassroomPage() {
       profile={profile}
       hidden={teacherHidden}
       chapterTitle={selectedChapter?.chapter_title}
+      compact={view === "arena"}
     />
   );
 

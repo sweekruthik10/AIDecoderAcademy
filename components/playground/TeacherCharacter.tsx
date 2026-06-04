@@ -1,11 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { TeacherDialogue, type ValidationResult } from "./TeacherDialogue";
 import { ObjectiveSubmissionPanel } from "./ObjectiveSubmissionPanel";
 import { getRubric, genericRubric, getStagedRubric, type ObjectiveRubric } from "@/lib/objectiveRubrics";
-import { OBJECTIVES, toLmsId, type Objective } from "@/lib/objectives";
+import { OBJECTIVES, toLmsId, normalizeObjectiveId, type Objective } from "@/lib/objectives";
 import { useValidatorWriter } from "@/lib/chatChannels";
 
 interface Props {
@@ -35,10 +35,12 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
   const [open, setOpen] = useState(false);
   const [hint, setHint] = useState(true); // "💬 Talk to teacher" badge fades after first interaction
   const { setLast: publishValidator } = useValidatorWriter();
+  const messagesRef = useRef(messages);
 
   // Resolve rubric + the underlying Objective (for fallback title/task).
+  const normalizedObjectiveId = normalizeObjectiveId(objectiveId);
   const lmsId  = objectiveId.startsWith("l") ? objectiveId : toLmsId(objectiveId);
-  const objective: Objective | undefined = OBJECTIVES.find(o => o.id === objectiveId);
+  const objective: Objective | undefined = OBJECTIVES.find(o => o.id === normalizedObjectiveId);
 
   // Staged rubrics (currently only OBJ 10 / l1-10) take a different path:
   // they get the multi-step ObjectiveSubmissionPanel instead of the
@@ -58,6 +60,12 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
           objective?.title       ?? `Objective ${objectiveId}`,
           objective?.description ?? "Complete the assigned task.",
         ));
+
+  // Keep messagesRef in sync with the messages prop so handleValidate always
+  // reads the latest messages, even if called from a stale closure.
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   // Hide the floating hint after the dialogue has been opened once.
   useEffect(() => { if (open) setHint(false); }, [open]);
@@ -104,19 +112,28 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
   // Order: oldest → newest, so the validator can grab whiteboardImages.at(-1)
   // for "most recent."
   const wantedOutputType = objective?.outputType ?? "image";
-  const wantsImages      = wantedOutputType === "image";
+  // For worksheet-only objectives (OBJ 1, outputType="text"), still collect
+  // whiteboard images so ReadyView can show the tick when the student generates one.
+  const wantsImages      = wantedOutputType === "image" || lmsId === "l1-01";
+  const wantsAudio       = wantedOutputType === "audio";
 
-  const IMG_MARKER_RE = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
-  const DOC_MARKER_RE = /\[Document titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
-  const VID_MARKER_RE = /\[Video titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const IMG_MARKER_RE   = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const DOC_MARKER_RE   = /\[Document titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const VID_MARKER_RE   = /\[Video titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const AUDIO_MARKER_RE = /\[Audio titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
   const whiteboardImages: { url: string }[] = [];
   // Chat-uploaded worksheet docs — fallback for the validator when the popup
   // is empty. Same `[Document titled "X": URL]` marker the chat uses.
   const whiteboardDocs: { url: string; filename: string; format: "pdf" | "docx" }[] = [];
   // Chat-uploaded videos — kept for forward-compat; the active OBJ 6 path
   // now grades an avatar IMAGE (not video) per the GenAlpha spec rewrite.
-  // since the worksheet popup no longer has an upload zone.
   const whiteboardVideos: { url: string; filename: string }[] = [];
+  // Audio files from chat — used by OBJ 5 (Suno theme song) and OBJ 8
+  // (ElevenLabs voice lab). Collected from:
+  //   1. AI-generated audio messages (assistant, outputType=audio, JSON content)
+  //   2. User messages containing [Audio titled "...": URL] markers
+  const whiteboardAudios: { url: string; filename: string }[] = [];
+
   for (const m of messages) {
     if (m.isLoading || m.role !== "user" || typeof m.content !== "string") continue;
     for (const match of m.content.matchAll(DOC_MARKER_RE)) {
@@ -130,6 +147,11 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "video";
       whiteboardVideos.push({ url, filename });
+    }
+    for (const match of m.content.matchAll(AUDIO_MARKER_RE)) {
+      const url = match[2];
+      const filename = match[1] || url.split("/").pop() || "audio.mp3";
+      whiteboardAudios.push({ url, filename });
     }
   }
   if (wantsImages) {
@@ -157,9 +179,26 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       }
     }
   }
+  if (wantsAudio) {
+    for (const m of messages) {
+      if (m.isLoading) continue;
+      // AI-generated audio from the whiteboard (outputType=audio, content is JSON)
+      if (m.role === "assistant" && m.outputType === "audio" && typeof m.content === "string") {
+        try {
+          const parsed = JSON.parse(m.content) as Record<string, unknown>;
+          const url = (parsed.audioUrl ?? parsed.file_url ?? parsed.url) as string | undefined;
+          if (typeof url === "string" && url.startsWith("http")) {
+            whiteboardAudios.push({ url, filename: "audio.mp3" });
+          }
+        } catch { /* non-fatal */ }
+      }
+    }
+  }
 
   async function handleValidate(): Promise<{ result: ValidationResult; attemptId: string } | null> {
-    const cleanMessages = messages
+    // Read from ref so we always get the latest messages, even if this
+    // function was created during an earlier render with a stale snapshot.
+    const cleanMessages = messagesRef.current
       .filter(m => !m.isLoading && m.content)
       .map(m => ({
         role:       m.role,
@@ -332,6 +371,7 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
           whiteboardImages={whiteboardImages}
           whiteboardDocs={whiteboardDocs}
           whiteboardVideos={whiteboardVideos}
+          whiteboardAudios={whiteboardAudios}
           onClose={() => setOpen(false)}
           onComplete={async () => {
             // Award XP via the existing engine, same as TeacherDialogue's path.

@@ -186,7 +186,7 @@ const createItSchema = {
     personalityVisible:  { type: "boolean" },
     styleConsistent:     { type: "boolean" },
     audienceAppropriate: { type: "boolean" },
-    score:               { type: "integer", minimum: 0, maximum: 100 },
+    score:               { type: "integer" },
     summary:             { type: "string" },
   },
   required: ["description", "appearanceMatch", "personalityVisible", "styleConsistent", "audienceAppropriate", "score", "summary"],

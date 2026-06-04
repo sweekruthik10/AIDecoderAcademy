@@ -77,7 +77,7 @@ function LoadingBubble({ outputType, arenaId }: { outputType?: string; arenaId?:
   const dots = ".".repeat((tick % 3) + 1).padEnd(3, "\u00a0");
 
   return (
-    <div className={cn("w-56 rounded-xl border p-3 space-y-2 backdrop-blur-xl", colors.ring, colors.bg)}>
+    <div className={cn("w-full max-w-[224px] rounded-xl border p-3 space-y-2 backdrop-blur-xl", colors.ring, colors.bg)}>
       <div className="flex items-center gap-2">
         <span className="text-lg animate-bounce" style={{ animationDuration: "1.2s" }}>{meta.icon}</span>
         <div>
@@ -160,7 +160,7 @@ function ActionFooter({ onSave, content, outputType, accent, accentGlow }: {
   const ghostBtn = (active: boolean) => ({
     background:  active ? "rgba(0,255,148,0.15)"  : "rgba(148,168,200,0.10)",
     borderColor: active ? "rgba(0,255,148,0.45)"  : "rgba(148,168,200,0.35)",
-    color:       active ? "#7BFFC4"               : "#94A8C8",
+    color:       active ? "#7BFFC4"               : "#7EC8A0",
   });
 
   return (
@@ -170,8 +170,30 @@ function ActionFooter({ onSave, content, outputType, accent, accentGlow }: {
         <button
           onClick={handleCopy}
           title="Copy to clipboard"
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-display font-semibold border transition-all duration-200 active:scale-95 hover:border-[#94A8C8]/70 hover:text-[#C8DBF0]"
-          style={ghostBtn(copied)}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-display font-semibold border transition-all duration-200 active:scale-95"
+          style={copied ? {
+            background:  "rgba(0,255,148,0.15)",
+            borderColor: "rgba(0,255,148,0.45)",
+            color:       "#7BFFC4",
+          } : {
+            background:  "rgba(148,168,200,0.10)",
+            borderColor: "rgba(148,168,200,0.35)",
+            color:       "#94A8C8",
+          }}
+          onMouseEnter={e => {
+            if (copied) return;
+            (e.currentTarget as HTMLElement).style.background  = "#00D4FF";
+            (e.currentTarget as HTMLElement).style.borderColor = "#00D4FF";
+            (e.currentTarget as HTMLElement).style.color       = "#08080F";
+            (e.currentTarget as HTMLElement).style.boxShadow   = "0 0 14px rgba(0,212,255,0.45)";
+          }}
+          onMouseLeave={e => {
+            if (copied) return;
+            (e.currentTarget as HTMLElement).style.background  = "rgba(148,168,200,0.10)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(148,168,200,0.35)";
+            (e.currentTarget as HTMLElement).style.color       = "#94A8C8";
+            (e.currentTarget as HTMLElement).style.boxShadow   = "none";
+          }}
         >
           {copied ? (
             <><span className="text-[10px]">✓</span> Copied!</>
@@ -192,14 +214,30 @@ function ActionFooter({ onSave, content, outputType, accent, accentGlow }: {
         <button
           onClick={handleDownload}
           title={outputType === "image" ? "Download image" : `Download .${outputType}`}
-          className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-display font-semibold border transition-all duration-200 active:scale-95 hover:border-[#94A8C8]/70 hover:text-[#C8DBF0]"
-          style={ghostBtn(false)}
+          className="flex items-center gap-1 px-2.5 py-1.5 rounded-full text-xs font-display font-semibold border transition-all duration-200 active:scale-95"
+          style={{
+            background:  "rgba(148,168,200,0.10)",
+            borderColor: "rgba(148,168,200,0.35)",
+            color:       "#94A8C8",
+          }}
+          onMouseEnter={e => {
+            (e.currentTarget as HTMLElement).style.background  = "#00C27A";
+            (e.currentTarget as HTMLElement).style.borderColor = "#00C27A";
+            (e.currentTarget as HTMLElement).style.color       = "#08080F";
+            (e.currentTarget as HTMLElement).style.boxShadow   = "0 0 14px rgba(0,194,122,0.45)";
+          }}
+          onMouseLeave={e => {
+            (e.currentTarget as HTMLElement).style.background  = "rgba(148,168,200,0.10)";
+            (e.currentTarget as HTMLElement).style.borderColor = "rgba(148,168,200,0.35)";
+            (e.currentTarget as HTMLElement).style.color       = "#94A8C8";
+            (e.currentTarget as HTMLElement).style.boxShadow   = "none";
+          }}
         >
           <svg width="11" height="11" viewBox="0 0 12 12" fill="none">
             <path d="M6 1v7M3.5 5.5L6 8l2.5-2.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
             <path d="M1 9.5v1A1.5 1.5 0 002.5 12h7a1.5 1.5 0 001.5-1.5v-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
           </svg>
-          {outputType === "image" ? "Download" : "Download"}
+          Download
         </button>
       )}
 
@@ -377,7 +415,7 @@ export function MessageBubble({
       {/* Content column */}
       <div className={cn(
         "flex flex-col",
-        isUser ? "max-w-[50%] sm:max-w-[45%]" : "max-w-[68%] sm:max-w-[58%]"
+        isUser ? "max-w-[72%] sm:max-w-[65%]" : "max-w-[85%] sm:max-w-[78%]"
       )}>
 
         {/* Bubble */}
@@ -425,7 +463,7 @@ export function MessageBubble({
             <div className="rounded-2xl overflow-hidden border border-white/[0.09]"
               style={{ boxShadow: `0 0 32px ${arenaAccentGlow}` }}>
               <img src={message.content.trim()} alt="Generated image"
-                className="w-full max-w-[220px] object-cover rounded-xl"/>
+                className="w-full max-w-[300px] object-cover rounded-xl"/>
             </div>
           )}
 

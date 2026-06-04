@@ -16,6 +16,7 @@ const TIPS = [
 interface Props {
   objectives: Objective[];
   completed:  Set<string>;
+  selectedObjective?: Objective | null;
   profile:    { xp?: number; streak_days?: number; display_name?: string } | null;
   onStartNext: (obj: Objective) => void;
 }
@@ -23,6 +24,7 @@ interface Props {
 export default function Arena1CenterOverlay({
   objectives,
   completed,
+  selectedObjective = null,
   profile,
   onStartNext,
 }: Props) {
@@ -30,228 +32,242 @@ export default function Arena1CenterOverlay({
   const doneCount = objectives.filter(o => completed.has(o.id)).length;
   const pct       = total > 0 ? Math.round((doneCount / total) * 100) : 0;
 
-  // Only point the "Next Mission" CTA at objectives that are actually
-  // playable today (OBJ 6, OBJ 10). Otherwise the kid clicks a locked tile
-  // through the central card.
   const nextObj = useMemo(
     () => objectives.find(o => !completed.has(o.id) && isObjectiveEnabled(o.id)) ?? null,
     [objectives, completed]
   );
+  const activeObj  = selectedObjective ?? nextObj;
+  const isSelected = selectedObjective != null;
 
-  const tipIndex  = doneCount % TIPS.length;
-  const tip       = TIPS[tipIndex];
-  const arenaXP   = objectives
+  const tipIndex = doneCount % TIPS.length;
+  const tip      = TIPS[tipIndex];
+  const arenaXP  = objectives
     .filter(o => completed.has(o.id))
     .reduce((sum, o) => sum + o.xpReward, 0);
 
   const firstName = profile?.display_name?.split(" ")[0] ?? "Creator";
 
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.94, y: 8 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
+    <div
       style={{
-        position:  "absolute",
-        left:      "41%",
-        top:       "29%",
-        transform: "translate(-50%, -50%)",
-        width:     "clamp(260px, 22vw, 340px)",
-        zIndex:    35,
+        position:      "absolute",
+        left:          "50%",
+        top:           "66%",
+        transform:     "translate(-50%, -50%)",
+        // Width scales with viewport but never smaller than 300px or wider than 620px
+        width:         "clamp(300px, 44vw, 620px)",
+        // Never taller than 85% of the viewport — scrolls internally if content is tall
+        maxHeight:     "85vh",
+        zIndex:        80,
         pointerEvents: "none",
       }}
     >
-      <div
-        style={{
-          background:     "rgba(255,255,255,0.93)",
-          border:         "1.5px solid rgba(0,100,255,0.25)",
-          borderRadius:   "20px",
-          backdropFilter: "blur(20px)",
-          boxShadow:      "0 8px 40px rgba(0,80,255,0.18), 0 2px 0 rgba(255,255,255,0.9) inset",
-          padding:        "20px",
-          pointerEvents:  "auto",
-        }}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.94, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1], delay: 0.3 }}
+        style={{ maxHeight: "inherit" }}
       >
-        {/* Top accent line */}
         <div
           style={{
-            position:     "absolute",
-            top:          0,
-            left:         "10%",
-            right:        "10%",
-            height:       "2.5px",
-            background:   "linear-gradient(90deg, transparent, #1E5FFF, transparent)",
-            borderRadius: "2px",
+            background:     "rgba(255,255,255,0.93)",
+            border:         "1.5px solid rgba(0,100,255,0.25)",
+            borderRadius:   "clamp(16px, 1.5vw, 24px)",
+            backdropFilter: "blur(20px)",
+            boxShadow:      "0 12px 56px rgba(0,80,255,0.22), 0 2px 0 rgba(255,255,255,0.9) inset",
+            // Padding scales: smaller on small screens, larger on big ones
+            padding:        "clamp(14px, 2vw, 28px) clamp(16px, 2.5vw, 32px)",
+            pointerEvents:  "auto",
+            overflowY:      "auto",
+            maxHeight:      "inherit",
+            scrollbarWidth: "none",
+            position:       "relative",
           }}
-        />
-
-        {/* Greeting */}
-        <div className="flex items-center gap-2 mb-3">
-          <div
-            style={{
-              width:        28,
-              height:       28,
-              borderRadius: "50%",
-              background:   "linear-gradient(135deg, #1E5FFF22, #00A8FF22)",
-              border:       "1.5px solid rgba(30,95,255,0.4)",
-              display:      "flex",
-              alignItems:   "center",
-              justifyContent: "center",
-              fontSize:     12,
-            }}
-          >
-            🤖
-          </div>
-          <div>
-            <p style={{ fontSize: 10, color: "#1E5FFF", fontFamily: "monospace", letterSpacing: "0.08em", fontWeight: 700 }}>
-              AI EXPLORER ARENA
-            </p>
-            <p style={{ fontSize: 13, color: "#0a0a2e", fontWeight: 800, lineHeight: 1.2 }}>
-              Welcome back, {firstName}
-            </p>
-          </div>
-        </div>
-
-        {/* Progress bar */}
-        <div className="mb-3">
-          <div className="flex items-center justify-between mb-1">
-            <span style={{ fontSize: 10, color: "rgba(0,0,0,0.4)", fontFamily: "monospace", fontWeight: 700 }}>
-              MISSIONS
-            </span>
-            <span style={{ fontSize: 11, fontWeight: 700, color: "#1E5FFF", fontFamily: "monospace" }}>
-              {doneCount}/{total}
-            </span>
-          </div>
-          <div
-            style={{
-              height:       6,
-              background:   "rgba(30,95,255,0.1)",
-              borderRadius: 4,
-              overflow:     "hidden",
-            }}
-          >
-            <motion.div
-              initial={{ width: 0 }}
-              animate={{ width: `${pct}%` }}
-              transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.5 }}
-              style={{
-                height:     "100%",
-                background: pct === 100
-                  ? "linear-gradient(90deg, #00C27A, #1E5FFF)"
-                  : "linear-gradient(90deg, #1E5FFF, #00A8FF)",
-                borderRadius: 4,
-                boxShadow:  "0 0 8px rgba(30,95,255,0.5)",
-              }}
-            />
-          </div>
-        </div>
-
-        {/* Stats row */}
-        <div
-          className="grid grid-cols-3 gap-2 mb-3"
         >
-          {[
-            { icon: <Zap size={11} fill="#1E5FFF" color="#1E5FFF"/>, label: "Arena XP", value: `+${arenaXP}` },
-            { icon: <Flame size={11} color="#FF6B2B"/>, label: "Streak", value: `${profile?.streak_days ?? 0}d` },
-            { icon: <Target size={11} color="#00A8FF"/>, label: "Done", value: `${pct}%` },
-          ].map(s => (
+          {/* Top accent line */}
+          <div
+            style={{
+              position:     "absolute",
+              top:          0,
+              left:         "5%",
+              right:        "5%",
+              height:       "3px",
+              background:   "linear-gradient(90deg, transparent, #1E5FFF, transparent)",
+              borderRadius: "2px",
+            }}
+          />
+
+          {/* Greeting */}
+          <div style={{ display: "flex", alignItems: "center", gap: "clamp(8px, 1vw, 14px)", marginBottom: "clamp(10px, 1.5vw, 16px)" }}>
             <div
-              key={s.label}
               style={{
-                background:   "rgba(30,95,255,0.06)",
-                border:       "1px solid rgba(30,95,255,0.15)",
-                borderRadius: 10,
-                padding:      "8px 6px",
+                width:          "clamp(28px, 3vw, 36px)",
+                height:         "clamp(28px, 3vw, 36px)",
+                borderRadius:   "50%",
+                background:     "linear-gradient(135deg, #1E5FFF22, #00A8FF22)",
+                border:         "1.5px solid rgba(30,95,255,0.4)",
+                display:        "flex",
+                alignItems:     "center",
+                justifyContent: "center",
+                fontSize:       "clamp(12px, 1.4vw, 16px)",
+                flexShrink:     0,
+              }}
+            >
+              🤖
+            </div>
+            <div>
+              <p style={{
+                fontSize:      "clamp(8px, 0.85vw, 11px)",
+                color:         "#1E5FFF",
+                fontFamily:    "monospace",
+                letterSpacing: "0.1em",
+                fontWeight:    700,
+              }}>
+                AI EXPLORER ARENA
+              </p>
+              <p style={{
+                fontSize:   "clamp(13px, 1.4vw, 17px)",
+                color:      "#0a0a2e",
+                fontWeight: 800,
+                lineHeight: 1.2,
+              }}>
+                Welcome back, {firstName} 👋
+              </p>
+            </div>
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ marginBottom: "clamp(10px, 1.5vw, 16px)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: "clamp(4px, 0.5vw, 6px)" }}>
+              <span style={{ fontSize: "clamp(8px, 0.85vw, 11px)", color: "rgba(0,0,0,0.4)", fontFamily: "monospace", fontWeight: 700 }}>
+                MISSIONS
+              </span>
+              <span style={{ fontSize: "clamp(9px, 0.9vw, 12px)", fontWeight: 700, color: "#1E5FFF", fontFamily: "monospace" }}>
+                {doneCount}/{total}
+              </span>
+            </div>
+            <div style={{ height: "clamp(4px, 0.5vw, 7px)", background: "rgba(30,95,255,0.1)", borderRadius: 6, overflow: "hidden" }}>
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${pct}%` }}
+                transition={{ duration: 0.8, ease: [0.16, 1, 0.3, 1], delay: 0.5 }}
+                style={{
+                  height:       "100%",
+                  background:   pct === 100
+                    ? "linear-gradient(90deg, #00C27A, #1E5FFF)"
+                    : "linear-gradient(90deg, #1E5FFF, #00A8FF)",
+                  borderRadius: 6,
+                  boxShadow:    "0 0 10px rgba(30,95,255,0.5)",
+                }}
+              />
+            </div>
+          </div>
+
+          {/* Stats row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: "clamp(6px, 1vw, 12px)", marginBottom: "clamp(10px, 1.5vw, 16px)" }}>
+            {[
+              { icon: <Zap size={12} fill="#1E5FFF" color="#1E5FFF"/>, label: "Arena XP", value: `+${arenaXP}` },
+              { icon: <Flame size={12} color="#FF6B2B"/>,              label: "Streak",   value: `${profile?.streak_days ?? 0}d` },
+              { icon: <Target size={12} color="#00A8FF"/>,             label: "Done",     value: `${pct}%` },
+            ].map(s => (
+              <div
+                key={s.label}
+                style={{
+                  background:     "rgba(30,95,255,0.06)",
+                  border:         "1px solid rgba(30,95,255,0.15)",
+                  borderRadius:   "clamp(8px, 1vw, 12px)",
+                  padding:        "clamp(7px, 1vw, 12px) clamp(4px, 0.8vw, 8px)",
+                  textAlign:      "center",
+                }}
+              >
+                <div style={{ display: "flex", justifyContent: "center", marginBottom: "clamp(4px, 0.5vw, 6px)" }}>{s.icon}</div>
+                <p style={{ fontSize: "clamp(13px, 1.5vw, 18px)", fontWeight: 900, color: "#0a0a2e", lineHeight: 1 }}>{s.value}</p>
+                <p style={{ fontSize: "clamp(8px, 0.8vw, 10px)", color: "rgba(0,0,0,0.4)", fontFamily: "monospace", marginTop: "clamp(2px, 0.3vw, 4px)" }}>{s.label}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Mission CTA */}
+          {activeObj && (
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.97 }}
+              onClick={() => onStartNext(activeObj)}
+              style={{
+                width:        "100%",
+                background:   "rgba(30,95,255,0.08)",
+                border:       "1px solid rgba(30,95,255,0.3)",
+                borderRadius: "clamp(10px, 1.2vw, 14px)",
+                padding:      "clamp(10px, 1.2vw, 14px) clamp(10px, 1.5vw, 16px)",
+                display:      "flex",
+                alignItems:   "center",
+                gap:          "clamp(8px, 1vw, 12px)",
+                cursor:       "pointer",
+                marginBottom: "clamp(8px, 1vw, 12px)",
+                textAlign:    "left",
+              }}
+            >
+              <span style={{ fontSize: "clamp(16px, 2vw, 22px)", flexShrink: 0 }}>{activeObj.emoji}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontSize: "clamp(8px, 0.85vw, 10px)", color: "#1E5FFF", fontFamily: "monospace", marginBottom: 3, fontWeight: 700 }}>
+                  {isSelected ? `START MISSION #${activeObj.order}` : `NEXT MISSION #${activeObj.order}`}
+                </p>
+                <p style={{ fontSize: "clamp(11px, 1.2vw, 14px)", fontWeight: 700, color: "#0a0a2e", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {activeObj.title}
+                </p>
+              </div>
+              <div
+                style={{
+                  width:          "clamp(22px, 2.5vw, 30px)",
+                  height:         "clamp(22px, 2.5vw, 30px)",
+                  borderRadius:   "50%",
+                  background:     "#1E5FFF",
+                  display:        "flex",
+                  alignItems:     "center",
+                  justifyContent: "center",
+                  flexShrink:     0,
+                }}
+              >
+                <ChevronRight size={13} color="#fff"/>
+              </div>
+            </motion.button>
+          )}
+
+          {doneCount === total && (
+            <div
+              style={{
+                background:   "rgba(0,194,122,0.1)",
+                border:       "1px solid rgba(0,194,122,0.35)",
+                borderRadius: "clamp(10px, 1.2vw, 14px)",
+                padding:      "clamp(10px, 1.2vw, 14px) clamp(10px, 1.5vw, 16px)",
+                marginBottom: "clamp(8px, 1vw, 12px)",
                 textAlign:    "center",
               }}
             >
-              <div className="flex justify-center mb-1">{s.icon}</div>
-              <p style={{ fontSize: 13, fontWeight: 800, color: "#0a0a2e", lineHeight: 1 }}>{s.value}</p>
-              <p style={{ fontSize: 9, color: "rgba(0,0,0,0.4)", fontFamily: "monospace", marginTop: 2 }}>{s.label}</p>
+              <p style={{ fontSize: "clamp(16px, 2vw, 20px)" }}>🎉</p>
+              <p style={{ fontSize: "clamp(12px, 1.3vw, 15px)", fontWeight: 800, color: "#00A85A" }}>Arena Complete!</p>
+              <p style={{ fontSize: "clamp(9px, 0.9vw, 11px)", color: "rgba(0,0,0,0.4)", marginTop: 3 }}>All {total} missions done. Legendary.</p>
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* Next mission CTA */}
-        {nextObj && (
-          <motion.button
-            whileHover={{ scale: 1.02 }}
-            whileTap={{ scale: 0.97 }}
-            onClick={() => onStartNext(nextObj)}
-            style={{
-              width:        "100%",
-              background:   "rgba(30,95,255,0.08)",
-              border:       "1px solid rgba(30,95,255,0.3)",
-              borderRadius: 12,
-              padding:      "10px 12px",
-              display:      "flex",
-              alignItems:   "center",
-              gap:          8,
-              cursor:       "pointer",
-              marginBottom: 10,
-              textAlign:    "left",
-            }}
-          >
-            <span style={{ fontSize: 16, flexShrink: 0 }}>{nextObj.emoji}</span>
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <p style={{ fontSize: 9, color: "#1E5FFF", fontFamily: "monospace", marginBottom: 2, fontWeight: 700 }}>
-                NEXT MISSION #{nextObj.order}
-              </p>
-              <p style={{ fontSize: 11, fontWeight: 700, color: "#0a0a2e", lineHeight: 1.3, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {nextObj.title}
-              </p>
-            </div>
-            <div
-              style={{
-                width:        22,
-                height:       22,
-                borderRadius: "50%",
-                background:   "#1E5FFF",
-                display:      "flex",
-                alignItems:   "center",
-                justifyContent: "center",
-                flexShrink:   0,
-              }}
-            >
-              <ChevronRight size={12} color="#fff"/>
-            </div>
-          </motion.button>
-        )}
-
-        {doneCount === total && (
+          {/* Tip */}
           <div
             style={{
-              background:   "rgba(0,194,122,0.1)",
-              border:       "1px solid rgba(0,194,122,0.35)",
-              borderRadius: 12,
-              padding:      "10px 12px",
-              marginBottom: 10,
-              textAlign:    "center",
+              background:   "rgba(30,95,255,0.06)",
+              border:       "1px solid rgba(30,95,255,0.12)",
+              borderRadius: "clamp(8px, 1vw, 12px)",
+              padding:      "clamp(7px, 0.9vw, 10px) clamp(8px, 1.2vw, 14px)",
+              display:      "flex",
+              gap:          "clamp(5px, 0.7vw, 8px)",
             }}
           >
-            <p style={{ fontSize: 14 }}>🎉</p>
-            <p style={{ fontSize: 12, fontWeight: 800, color: "#00A85A" }}>Arena Complete!</p>
-            <p style={{ fontSize: 10, color: "rgba(255,255,255,0.5)", marginTop: 2 }}>All 15 missions done. Legendary.</p>
+            <span style={{ fontSize: "clamp(11px, 1.2vw, 13px)", flexShrink: 0 }}>💡</span>
+            <p style={{ fontSize: "clamp(9px, 0.9vw, 11px)", color: "rgba(0,0,0,0.5)", lineHeight: 1.6, fontStyle: "italic" }}>
+              {tip}
+            </p>
           </div>
-        )}
-
-        {/* Tip */}
-        <div
-          style={{
-            background:   "rgba(30,95,255,0.06)",
-            border:       "1px solid rgba(30,95,255,0.12)",
-            borderRadius: 10,
-            padding:      "8px 10px",
-            display:      "flex",
-            gap:          6,
-          }}
-        >
-          <span style={{ fontSize: 11, flexShrink: 0 }}>💡</span>
-          <p style={{ fontSize: 10, color: "rgba(0,0,0,0.5)", lineHeight: 1.5, fontStyle: "italic" }}>
-            {tip}
-          </p>
         </div>
-      </div>
-    </motion.div>
+      </motion.div>
+    </div>
   );
 }

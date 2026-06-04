@@ -564,9 +564,9 @@ export function CreationsRoom({
   };
 
   // ── Message list ─────────────────────────────────────────────────────────
-  const renderMessageList = (ref: React.RefObject<HTMLDivElement | null>) => (
+  const renderMessageList = (ref: React.RefObject<HTMLDivElement | null>, topPad = "12px") => (
     <div ref={ref} className="select-text" style={{
-      flex: 1, overflowY: "auto", padding: "12px 14px 8px",
+      flex: 1, overflowY: "auto", padding: `${topPad} 14px 8px`,
       display: "flex", flexDirection: "column", gap: 8,
       scrollbarWidth: "none", minHeight: 0,
     }}>
@@ -1184,6 +1184,19 @@ export function CreationsRoom({
         )}
       </div>
 
+      {/* ── Objective card — absolute overlay so it never affects the flex layout ── */}
+      {objectiveId && (
+        <div className="hidden lg:block" style={{
+          position: "absolute",
+          left: "37%", top: "9%", right: "5%",
+          padding: "8px 12px 0",
+          zIndex: 25,
+          pointerEvents: "auto",
+        }}>
+          <ObjectiveCard objectiveId={objectiveId} arenaAccent={arenaAccent} arenaAccentGlow={arenaAccentGlow} />
+        </div>
+      )}
+
       {/* ── Desktop chat panel — overlaid on the large blue screen ───────── */}
       <div className="hidden lg:flex flex-col"
         style={{
@@ -1193,12 +1206,7 @@ export function CreationsRoom({
           background: "transparent",
         }}
       >
-        {objectiveId && (
-          <div style={{ padding: "8px 12px 0", flexShrink: 0 }}>
-            <ObjectiveCard objectiveId={objectiveId} arenaAccent={arenaAccent} arenaAccentGlow={arenaAccentGlow} />
-          </div>
-        )}
-        {renderMessageList(scrollRefDesktop)}
+        {renderMessageList(scrollRefDesktop, objectiveId ? "68px" : "12px")}
         <div style={{ padding: "8px 12px 12px", flexShrink: 0 }}>
           {/* Output-type dot row */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 5, marginBottom: 6 }}>

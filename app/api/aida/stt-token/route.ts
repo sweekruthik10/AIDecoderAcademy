@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 
-export const runtime = "nodejs";
+export const runtime     = "nodejs";
+export const maxDuration = 60;
 
 // Returns a Deepgram API key to authenticated browser clients so the Live
 // voice mode can open a streaming WebSocket directly to Deepgram without

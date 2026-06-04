@@ -41,8 +41,10 @@ interface Props {
   whiteboardImages: WhiteboardImageMessage[];   // recent images from whiteboard chat
   // Worksheet docs the kid dropped into chat (priority: popup wins, this is fallback)
   whiteboardDocs?:  { url: string; filename: string; format: "pdf" | "docx" }[];
-  // Videos the kid dropped into chat (sole source for OBJ 6 avatar MP4 now)
+  // Videos the kid dropped into chat (kept for forward-compat; OBJ 6 uses images now)
   whiteboardVideos?: { url: string; filename: string }[];
+  // Audio files from whiteboard chat — used by OBJ 5 (Suno) and OBJ 8 (ElevenLabs)
+  whiteboardAudios?: { url: string; filename: string }[];
   onClose:          () => void;
   onComplete:       (composite: number, tier: FinalResult["tier"]) => Promise<void>;
 }
@@ -79,11 +81,172 @@ const OBJ10_FIELD_LINES: Record<string, string> = {
   panel3Dialogue:   "Panel 3 punchline dialogue — missing. That's a joke with no ending. Classic move.",
 };
 
+const OBJ1_FIELD_LINES: Record<string, string> = {
+  intent:           "Intent — blank. What reaction do you want when this is read aloud?",
+  assumptions:      "Assumptions — empty. What might ChatGPT get wrong? Name at least two.",
+  audience:         "Audience — nothing. The specific people in this room. Name them.",
+  success:          "Success — also blank. Observable reaction from ONE person.",
+  q1WhoAreYou:      "Q1 (Who are you) — blank. 2-3 sentences. Not your name — what you're like.",
+  q2WhatYouCare:    "Q2 (What you care about) — blank. 2-3 sentences. What keeps you thinking?",
+  q3WhatDrives:     "Q3 (What drives you) — blank. 2-3 sentences. What pushes you forward?",
+  q4WhereGoing:     "Q4 (Where going) — blank. 2-3 sentences. 5 years out.",
+  finalIntro:       "Final intro — empty. Paste the 2-sentence Netflix intro from ChatGPT.",
+  avatarName:       "Avatar Name — missing. Identity for 6 levels. Choose it intentionally.",
+  avatarNameReason: "Avatar Name reason — empty. What does it represent?",
+  correctAssumption:"Correct-assumption reflection — blank. What did ChatGPT do as predicted?",
+  wrongAssumption:  "Wrong-assumption reflection — blank. What surprised you?",
+  observation:      "Observation — blank. What does the intro literally say?",
+  interpretation:   "Interpretation — blank. What does it imply about you?",
+};
+
+const OBJ9_FIELD_LINES: Record<string, string> = {
+  intent:                  "Intent — blank. What specific Firefly assumption are you testing?",
+  assumptions:             "Assumptions — empty. Predict 3 elements Firefly will add that you didn't request.",
+  audience:                "Audience — nothing. Someone who hasn't seen your prompt — what would they say changed?",
+  success:                 "Success — also blank. What specific discovery would be informative?",
+  basePrompt:              "Base prompt — empty. Same prompt for all 3 versions. Keep it focused.",
+  auditItem1:              "Element audit needs at least 5 specific uninvited elements.",
+  auditItem2:              "Element audit needs at least 5 specific uninvited elements.",
+  auditItem3:              "Element audit needs at least 5 specific uninvited elements.",
+  auditItem4:              "Element audit needs at least 5 specific uninvited elements.",
+  auditItem5:              "Element audit needs at least 5 specific uninvited elements.",
+  v2NegativePrompt:        "V2 negative prompt — empty. Choose 2-4 elements from your audit.",
+  v3NegativePrompt:        "V3 negative prompt — empty. Extend V2 with 2-3 more exclusions.",
+  mostImpactfulExclusion:  "Most impactful exclusion — blank. Which word changed the image most? Why did Firefly include it?",
+  ctSkill1Assumption:      "CT Skill 1 reflection — blank. What did Firefly assume + where did the assumption come from?",
+};
+
+const OBJ8_FIELD_LINES: Record<string, string> = {
+  intent:                   "Intent — blank. What analytical question does this blind eval answer?",
+  assumptions:              "Assumptions — empty. What are you betting about your ability to identify voice personality by ear?",
+  audience:                 "Audience — nothing. Whose listening perspective are you borrowing?",
+  success:                  "Success — also blank. What does accurate auditory observation look like?",
+  topic:                    "Topic — empty. Write what your 3-sentence script is about.",
+  sentence1:                "Sentence 1 — missing. Complete sentence, emotionally clear.",
+  sentence2:                "Sentence 2 — missing.",
+  sentence3:                "Sentence 3 — missing.",
+  voice1Name:               "Voice 1 name — missing. Choose by ElevenLabs name, no previews.",
+  voice2Name:               "Voice 2 name — missing.",
+  voice3Name:               "Voice 3 name — missing.",
+  voiceAObservation:        "Voice A observation — blank. Literal auditory facts only.",
+  voiceAInterpretation:     "Voice A interpretation — blank. What personality does it communicate?",
+  voiceBObservation:        "Voice B observation — blank.",
+  voiceBInterpretation:     "Voice B interpretation — blank.",
+  voiceCObservation:        "Voice C observation — blank.",
+  voiceCInterpretation:     "Voice C interpretation — blank.",
+  voiceAReveal:             "Voice A reveal — blank. Which ElevenLabs voice was it?",
+  voiceBReveal:             "Voice B reveal — blank.",
+  voiceCReveal:             "Voice C reveal — blank.",
+  whereWrong:               "Where wrong — blank. Which voice did you misread?",
+  mostInterestingMismatch:  "Most interesting mismatch — blank. What did the voice name imply that didn't match?",
+};
+
+const OBJ7_FIELD_LINES: Record<string, string> = {
+  intent:         "Intent — blank. What should a stranger say about your film world in 3 seconds?",
+  assumptions:    "Assumptions — empty. What might Firefly read differently from what you intend?",
+  audience:       "Audience — nothing. Name ONE person who'll tell you if the poster worked.",
+  success:        "Success — also blank. What can a stranger SAY about your film without explanation?",
+  topicSentence:  "Topic sentence — empty. Describe the WORLD of your film, not a character or genre.",
+  toneWord:       "Tone word — missing. Pick ONE: haunting, urgent, melancholic, dreamlike.",
+  atmosphereWord: "Atmosphere word — missing. Pick ONE: golden hour, neon-lit, noir, stormy.",
+  fireflyPrompt:  "Firefly prompt — empty. Combine all three elements into the prompt.",
+  observation:    "Observation — blank. What do you LITERALLY see? Facts only.",
+  interpretation: "Interpretation — blank. What does the poster communicate?",
+  didItWork:      "Did it work — blank. Compare interpretation to intent. Which word would you change?",
+};
+
+const OBJ5_FIELD_LINES: Record<string, string> = {
+  intent:                 "Intent — blank. What should listeners FEEL in the first 5 seconds?",
+  assumptions:            "Assumptions — empty. What are you betting on about how Suno will interpret your words?",
+  audience:               "Audience — nothing. Who hears this first — and what music do they listen to?",
+  success:                "Success — also blank. What does one specific person SAY or DO if it captures you?",
+  word1:                  "Personality Word 1 — missing. You need 5 words that describe YOU.",
+  word2:                  "Personality Word 2 — missing.",
+  word3:                  "Personality Word 3 — missing.",
+  word4:                  "Personality Word 4 — missing.",
+  word5:                  "Personality Word 5 — missing.",
+  styleBrief:             "Style brief — empty. Need genre + energy + mood + instrument.",
+  obj6Energy:             "OBJ 6 connection — blank. What energy should the audience feel during your avatar reveal?",
+  iterationElement:       "Iteration plan — blank. What ONE element would you change if you regenerated?",
+  correctAssumption:      "Correct assumption reflection — blank.",
+  mostImpactfulElement:   "Most impactful element — blank. Name what in your brief shaped the track most.",
+};
+
+const OBJ4_FIELD_LINES: Record<string, string> = {
+  intent:               "Intent — blank. What reaction do you want from someone seeing all three panels?",
+  assumptions:          "Assumptions — empty. Predict the feeling each style will create. Which is the wildcard?",
+  audience:             "Audience — nothing. Who sees this and what makes the subject feel like a different character?",
+  success:              "Success — also blank. What does someone literally say or do when they see all three?",
+  subject:              "Subject — empty. Same subject across all three. Pick one.",
+  subjectWhy:           "Why this subject — blank. Why does it work across very different styles?",
+  style3:               "Style 3 — missing. Watercolour? Ukiyo-e? Cyberpunk neon? Pick a named, distinct style.",
+  style3Why:            "Why Style 3 — empty. What feeling do you expect it to create that 1 and 2 don't?",
+  prompt1:              "Prompt 1 (Photorealistic) — empty. Include style-reinforcing words, not just 'photorealistic'.",
+  prompt2:              "Prompt 2 (Anime) — empty. Same — anime needs descriptors: 'expressive eyes, dynamic pose, vibrant'.",
+  prompt3:              "Prompt 3 (your style) — empty. Style word alone isn't enough. Add descriptors that reinforce it.",
+  style1Observation:    "Style 1 observation — blank. Literally what changed visually? Facts only.",
+  style1Interpretation: "Style 1 interpretation — blank. What did Firefly prioritise in photorealistic?",
+  style2Observation:    "Style 2 observation — blank. Literally what changed?",
+  style2Interpretation: "Style 2 interpretation — blank. What did Firefly emphasise in anime?",
+  style3Observation:    "Style 3 observation — blank. Literally what changed?",
+  style3Interpretation: "Style 3 interpretation — blank. What did Firefly do with your chosen style?",
+  mostSurprisingStyle:  "Most surprising style — blank. Which one defied your prediction?",
+  realCharacterArt:     "Real / character / art — blank. Which panel reads as which?",
+  personalityDifferent: "Personality reflection — blank. Different character, or same character in different paint?",
+};
+
+const OBJ2_FIELD_LINES: Record<string, string> = {
+  intent:                "Intent — blank. What are you actually testing across 3 AIs?",
+  assumptions:           "Assumptions — empty. Predict how each AI will respond differently.",
+  audience:              "Audience — nothing. Who needs to see the difference?",
+  success:               "Success — also blank. What concrete difference would prove the test worked?",
+  question:              "Question — empty. ONE question, asked to all 3 AIs. Open, personal, reasoning-required.",
+  chatGptObservation:    "ChatGPT observation — blank. Facts only. What did it literally say?",
+  chatGptInterpretation: "ChatGPT interpretation — blank. What does it tell you about how ChatGPT reasoned?",
+  geminiObservation:     "Gemini observation — blank. Facts only.",
+  geminiInterpretation:  "Gemini interpretation — blank.",
+  claudeObservation:     "Claude observation — blank. Facts only.",
+  claudeInterpretation:  "Claude interpretation — blank.",
+  agreement:             "Agreement — blank. Where did all 3 agree?",
+  surprisingDifference:  "Surprising divergence — blank. What did ONE AI do that the others did not?",
+  whichAiForType:        "Which AI for this question type — blank. Name one + why.",
+  correctAssumption:     "Correct-assumption reflection — blank.",
+  wrongAssumption:       "Wrong-assumption reflection — blank.",
+};
+
+const OBJ3_FIELD_LINES: Record<string, string> = {
+  intent:              "Intent — blank. What reaction should this image trigger? Start there.",
+  assumptions:         "Assumptions — empty. You're betting on Canva AI reading your mind. Name the bet.",
+  audience:            "Audience — nothing. 'My friends' is a category, not a person.",
+  success:             "Success — also blank. What does it look like when this works?",
+  prompt1:             "Prompt 1 — empty. Canva AI needs at least 10 words to build a world.",
+  additionalWord1:     "Additional Word 1 — missing. You need 5 visual words.",
+  additionalWord2:     "Additional Word 2 — missing.",
+  additionalWord3:     "Additional Word 3 — missing.",
+  additionalWord4:     "Additional Word 4 — missing.",
+  additionalWord5:     "Additional Word 5 — missing.",
+  additionalWordsWhy:  "Why those 5 words — empty. Tell me what visual change each one should make.",
+  version1Reflection:  "Version 1 reflection — blank. What did you expect versus what did you get?",
+  version2Reflection:  "Version 2 reflection — blank. Which of the 5 words moved the image most?",
+  ctSkill1Reflection:  "CT Skill 1 reflection — blank. Which word did Canva AI misread? That's the whole point.",
+};
+
 function getEmptyFieldLines(
   data: Record<string, string | boolean>,
   isObj6: boolean,
+  lmsId?: string,
 ): string[] {
-  const map = isObj6 ? OBJ6_FIELD_LINES : OBJ10_FIELD_LINES;
+  const map =
+    lmsId === "l1-01" ? OBJ1_FIELD_LINES :
+    lmsId === "l1-02" ? OBJ2_FIELD_LINES :
+    lmsId === "l1-03" ? OBJ3_FIELD_LINES :
+    lmsId === "l1-04" ? OBJ4_FIELD_LINES :
+    lmsId === "l1-05" ? OBJ5_FIELD_LINES :
+    lmsId === "l1-07" ? OBJ7_FIELD_LINES :
+    lmsId === "l1-08" ? OBJ8_FIELD_LINES :
+    lmsId === "l1-09" ? OBJ9_FIELD_LINES :
+    isObj6            ? OBJ6_FIELD_LINES :
+                        OBJ10_FIELD_LINES;
   return Object.entries(map)
     .filter(([key]) => {
       const val = data[key];
@@ -279,10 +442,25 @@ function clearDraft(lmsId: string, profileId?: string) {
 }
 
 export function ObjectiveSubmissionPanel({
-  open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], onClose, onComplete,
+  open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], whiteboardAudios = [], onClose, onComplete,
 }: Props) {
-  const isObj6        = rubric.lmsId === "l1-06";
-  const validateUrl   = isObj6 ? "/api/aida/validate/obj6" : "/api/aida/validate/obj10";
+  // Dispatch table — add a row here when you add a new staged validator route.
+  // Maps lmsId → validate route + arena (legacy) id used for attempts/logging.
+  const DISPATCH: Record<string, { route: string; legacyId: string }> = {
+    "l1-01": { route: "/api/aida/validate/obj1",  legacyId: "a1-1"  },
+    "l1-02": { route: "/api/aida/validate/obj2",  legacyId: "a1-2"  },
+    "l1-03": { route: "/api/aida/validate/obj3",  legacyId: "a1-3"  },
+    "l1-04": { route: "/api/aida/validate/obj4",  legacyId: "a1-4"  },
+    "l1-05": { route: "/api/aida/validate/obj5",  legacyId: "a1-5"  },
+    "l1-06": { route: "/api/aida/validate/obj6",  legacyId: "a1-6"  },
+    "l1-07": { route: "/api/aida/validate/obj7",  legacyId: "a1-7"  },
+    "l1-08": { route: "/api/aida/validate/obj8",  legacyId: "a1-8"  },
+    "l1-09": { route: "/api/aida/validate/obj9",  legacyId: "a1-9"  },
+    "l1-10": { route: "/api/aida/validate/obj10", legacyId: "a1-10" },
+  };
+  const dispatch    = DISPATCH[rubric.lmsId] ?? DISPATCH["l1-10"];
+  const isObj6      = rubric.lmsId === "l1-06";
+  const validateUrl = dispatch.route;
 
   const [phase,   setPhase]   = useState<Phase>("intro");
   const [pending, setPending] = useState<PendingPayload | null>(null);
@@ -293,6 +471,10 @@ export function ObjectiveSubmissionPanel({
 
   const speakRef         = useRef<SpeakHandle | null>(null);
   const validateAbortRef = useRef<AbortController | null>(null);
+  const whiteboardImagesRef = useRef(whiteboardImages);
+  const whiteboardDocsRef   = useRef(whiteboardDocs);
+  const whiteboardVideosRef = useRef(whiteboardVideos);
+  const whiteboardAudiosRef = useRef(whiteboardAudios);
   const { setLast: publishValidator } = useValidatorWriter();
 
   // ── Speak helpers ────────────────────────────────────────────────────────
@@ -357,6 +539,15 @@ export function ObjectiveSubmissionPanel({
     }
   }
 
+  // Keep refs in sync with props so handleValidate always reads the latest
+  // whiteboard media, even if called from a stale closure.
+  useEffect(() => {
+    whiteboardImagesRef.current = whiteboardImages;
+    whiteboardDocsRef.current = whiteboardDocs;
+    whiteboardVideosRef.current = whiteboardVideos;
+    whiteboardAudiosRef.current = whiteboardAudios;
+  }, [whiteboardImages, whiteboardDocs, whiteboardVideos, whiteboardAudios]);
+
   // ── Greet on open. First open of the session = intro (3-beat reveal).
   //     Subsequent opens = ready, with a context-aware notice line. ─────────
   useEffect(() => {
@@ -387,7 +578,10 @@ export function ObjectiveSubmissionPanel({
       // Second+ open: contextual notice line that reflects what's pending.
       setPhase("ready");
       // Media now comes from chat — count whichever kind the objective needs.
-      const chatMediaCount = isObj6 ? whiteboardVideos.length : whiteboardImages.length;
+      const isAudioObj = rubric.lmsId === "l1-05" || rubric.lmsId === "l1-08";
+      const chatMediaCount = isObj6 ? whiteboardVideos.length
+        : isAudioObj ? whiteboardAudios.length
+        : whiteboardImages.length;
       const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
       const ctx: ReadyContext = {
         hasInlineForm,
@@ -397,7 +591,7 @@ export function ObjectiveSubmissionPanel({
         whiteboardCount: whiteboardImages.length,
         isObj6,
         emptyFieldCount: hasInlineForm && fresh?.data
-          ? getEmptyFieldLines(fresh.data, isObj6).length
+          ? getEmptyFieldLines(fresh.data, isObj6, rubric.lmsId).length
           : 0,
       };
       speakLine(pickReadyLine(ctx));
@@ -460,6 +654,8 @@ export function ObjectiveSubmissionPanel({
   async function handleValidate() {
     setError(null);
 
+    // Read from refs so we always get the latest whiteboard media, even if this
+    // function was created during an earlier render with a stale snapshot.
     const fresh = readPending(rubric.lmsId, profile?.id) ?? pending;
     setPending(fresh);
     // Priority order:
@@ -467,8 +663,8 @@ export function ObjectiveSubmissionPanel({
     //   2. Chat doc fallback (kid dropped a .pdf/.docx into the whiteboard)
     //   3. Funny SAGE complaint → bail
     let worksheetPayload = buildWorksheetPayload(fresh);
-    if (!worksheetPayload && whiteboardDocs.length > 0) {
-      const latest = whiteboardDocs[whiteboardDocs.length - 1];
+    if (!worksheetPayload && whiteboardDocsRef.current.length > 0) {
+      const latest = whiteboardDocsRef.current[whiteboardDocsRef.current.length - 1];
       worksheetPayload = {
         kind:     "file",
         url:      latest.url,
@@ -484,12 +680,41 @@ export function ObjectiveSubmissionPanel({
     }
 
     // Media is ALWAYS from the whiteboard chat — the worksheet popup no
-    // longer accepts uploads. BOTH objectives now take the most recent IMAGE
-    // (OBJ 6 = avatar image, OBJ 10 = comic image). Videos are no longer the
-    // OBJ 6 deliverable per the GenAlpha spec rewrite.
+    // longer accepts uploads.
+    //   OBJ 6  → most recent IMAGE (avatar)
+    //   OBJ 10 → most recent IMAGE (comic)
+    //   OBJ 3  → last TWO IMAGES (V1 + V2 — older first)
+    //   OBJ 4  → last THREE IMAGES (Photoreal + Anime + Style 3 — oldest first)
+    //   OBJ 5  → most recent AUDIO from chat (theme song MP3)
+    //   OBJ 8  → last THREE AUDIO files (Voice A, B, C — oldest first)
+    const isObj1 = rubric.lmsId === "l1-01";
+    const isObj2 = rubric.lmsId === "l1-02";
+    const isObj3 = rubric.lmsId === "l1-03";
+    const isObj4 = rubric.lmsId === "l1-04";
+    const isObj5 = rubric.lmsId === "l1-05";
+    const isObj7 = rubric.lmsId === "l1-07";
+    const isObj8 = rubric.lmsId === "l1-08";
+    const isObj9 = rubric.lmsId === "l1-09";
+    // OBJ 1 grades from worksheet only — no chat media required (finalIntro is inline).
+    const worksheetOnly = isObj1;
     let mediaToUse: string[] = [];
-    if (whiteboardImages.length > 0) {
-      mediaToUse = [whiteboardImages[whiteboardImages.length - 1].url];
+    if (isObj2 || isObj4 || isObj9) {
+      if (whiteboardImagesRef.current.length >= 3) {
+        const n = whiteboardImagesRef.current.length;
+        mediaToUse = [whiteboardImagesRef.current[n - 3].url, whiteboardImagesRef.current[n - 2].url, whiteboardImagesRef.current[n - 1].url];
+      }
+    } else if (isObj3) {
+      if (whiteboardImagesRef.current.length >= 2) {
+        const n = whiteboardImagesRef.current.length;
+        mediaToUse = [whiteboardImagesRef.current[n - 2].url, whiteboardImagesRef.current[n - 1].url];
+      }
+    } else if (isObj5 && whiteboardAudiosRef.current.length > 0) {
+      mediaToUse = [whiteboardAudiosRef.current[whiteboardAudiosRef.current.length - 1].url];
+    } else if (isObj8 && whiteboardAudiosRef.current.length >= 3) {
+      const n = whiteboardAudiosRef.current.length;
+      mediaToUse = [whiteboardAudiosRef.current[n - 3].url, whiteboardAudiosRef.current[n - 2].url, whiteboardAudiosRef.current[n - 1].url];
+    } else if (whiteboardImagesRef.current.length > 0) {
+      mediaToUse = [whiteboardImagesRef.current[whiteboardImagesRef.current.length - 1].url];
     }
 
     if (isObj6 && mediaToUse.length === 0) {
@@ -498,7 +723,49 @@ export function ObjectiveSubmissionPanel({
       speakLine(msg);
       return;
     }
-    if (!isObj6 && mediaToUse.length === 0) {
+    if (isObj3 && mediaToUse.length < 2) {
+      const msg = "I need BOTH images — Version 1 and Version 2. Generate Prompt 1 first, then Prompt 1 + 5 words. Drop both in chat, then come back.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (isObj4 && mediaToUse.length < 3) {
+      const msg = "I need ALL three images — Photorealistic, Anime, then your Style 3. Generate them in Firefly in order and drop all three in chat.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (isObj9 && mediaToUse.length < 3) {
+      const msg = "I need all three Firefly versions — V1 (base), V2 (first exclusions), V3 (extended). Drop them in chat in order.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (isObj2 && mediaToUse.length < 3) {
+      const msg = "I need all three screenshots — ChatGPT, Gemini, Claude. Drop them in chat in that order.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (isObj5 && mediaToUse.length === 0) {
+      const msg = "I need your Suno.ai theme song. Generate audio in the whiteboard or drop an MP3 in chat, then resubmit.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (isObj8 && mediaToUse.length < 3) {
+      const msg = "I need all three audio clips — Voice A, B, C. Generate them in the whiteboard or drop audio files in chat, then resubmit.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (isObj7 && mediaToUse.length === 0) {
+      const msg = "I need your Firefly poster image. Generate it and drop the file in chat, then resubmit.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (!isObj5 && !isObj6 && !isObj2 && !isObj3 && !isObj4 && !isObj7 && !isObj8 && !isObj9 && !worksheetOnly && mediaToUse.length === 0) {
       const msg = "Worksheet — in. Comic — missing. I can read minds, not blank canvases. Generate the comic or drop it in chat.";
       setError(msg);
       speakLine(msg);
@@ -507,7 +774,7 @@ export function ObjectiveSubmissionPanel({
 
     // Hard gate: call out every empty required field before sending to API.
     if (worksheetPayload.kind === "inline-form") {
-      const emptyLines = getEmptyFieldLines(worksheetPayload.data, isObj6);
+      const emptyLines = getEmptyFieldLines(worksheetPayload.data, isObj6, rubric.lmsId);
       if (emptyLines.length > 0) {
         const beats: ObjectiveIntroBeat[] = [
           ...emptyLines.map(text => ({ text })),
@@ -530,6 +797,82 @@ export function ObjectiveSubmissionPanel({
             worksheet:      worksheetPayload,
             avatarImageUrl: mediaToUse[0],
             notes:          fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : isObj3
+        ? {
+            worksheet:  worksheetPayload,
+            v1ImageUrl: mediaToUse[0],
+            v2ImageUrl: mediaToUse[1],
+            notes:      fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : isObj4 || isObj2
+        ? {
+            worksheet:  worksheetPayload,
+            v1ImageUrl: mediaToUse[0],
+            v2ImageUrl: mediaToUse[1],
+            v3ImageUrl: mediaToUse[2],
+            notes:      fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : isObj7
+        ? {
+            worksheet:      worksheetPayload,
+            posterImageUrl: mediaToUse[0],
+            notes:          fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : isObj5
+        ? {
+            worksheet:      worksheetPayload,
+            trackAudioUrl:  mediaToUse[0],
+            notes:          fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : isObj8
+        ? {
+            worksheet:   worksheetPayload,
+            voiceAUrl:   mediaToUse[0],
+            voiceBUrl:   mediaToUse[1],
+            voiceCUrl:   mediaToUse[2],
+            notes:       fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : isObj9
+        ? {
+            worksheet:  worksheetPayload,
+            v1ImageUrl: mediaToUse[0],
+            v2ImageUrl: mediaToUse[1],
+            v3ImageUrl: mediaToUse[2],
+            notes:      fresh?.notes ?? "",
+            profile: {
+              display_name: profile?.display_name ?? "Student",
+              age_group:    profile?.age_group    ?? "11-13",
+            },
+          }
+        : worksheetOnly
+        ? {
+            worksheet: worksheetPayload,
+            notes:     fresh?.notes ?? "",
             profile: {
               display_name: profile?.display_name ?? "Student",
               age_group:    profile?.age_group    ?? "11-13",
@@ -578,7 +921,7 @@ export function ObjectiveSubmissionPanel({
       // Publish to validator channel so AIDA can ground its replies.
       let attemptCount = 0;
       try {
-        const cRes = await fetch(`/api/objective-attempts?objective_id=${rubric.lmsId === "l1-06" ? "a1-6" : "a1-10"}`);
+        const cRes = await fetch(`/api/objective-attempts?objective_id=${dispatch.legacyId}`);
         if (cRes.ok) attemptCount = (await cRes.json()).count ?? 0;
       } catch { /* non-fatal */ }
       publishValidator({
@@ -591,7 +934,7 @@ export function ObjectiveSubmissionPanel({
 
       // Log + complete attempt.
       try {
-        const objId = rubric.lmsId === "l1-06" ? "a1-6" : "a1-10";
+        const objId = dispatch.legacyId;
         const aRes  = await fetch("/api/objective-attempts", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
@@ -649,7 +992,10 @@ export function ObjectiveSubmissionPanel({
     setPhase("ready");
     const fresh = readPending(rubric.lmsId, profile?.id);
     setPending(fresh);
-    const chatMediaCount = isObj6 ? whiteboardVideos.length : whiteboardImages.length;
+    const isAudioObj = rubric.lmsId === "l1-05" || rubric.lmsId === "l1-08";
+    const chatMediaCount = isObj6 ? whiteboardVideos.length
+      : isAudioObj ? whiteboardAudios.length
+      : whiteboardImages.length;
     const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
     const ctx: ReadyContext = {
       hasInlineForm,
@@ -659,7 +1005,7 @@ export function ObjectiveSubmissionPanel({
       whiteboardCount: whiteboardImages.length,
       isObj6:          isObj6,
       emptyFieldCount: hasInlineForm && fresh?.data
-        ? getEmptyFieldLines(fresh.data, isObj6).length
+        ? getEmptyFieldLines(fresh.data, isObj6, rubric.lmsId).length
         : 0,
     };
     speakLine(pickReadyLine(ctx));
@@ -786,7 +1132,15 @@ export function ObjectiveSubmissionPanel({
             {/* Body — phase-driven */}
             <div className="flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
               {phase === "ready" && (
-                <ReadyView pending={pending} isObj6={isObj6} whiteboardImageCount={whiteboardImages.length}/>
+                <ReadyView
+                  pending={pending}
+                  isObj6={isObj6}
+                  isObj5={rubric.lmsId === "l1-05"}
+                  isObj8={rubric.lmsId === "l1-08"}
+                  isWorksheetOnly={rubric.lmsId === "l1-01"}
+                  whiteboardImageCount={whiteboardImages.length}
+                  whiteboardAudioCount={whiteboardAudios.length}
+                />
               )}
               {phase === "submitting" && <SubmittingPanel/>}
               {phase === "result" && result && (
@@ -877,28 +1231,52 @@ function ActionButton({
 }
 
 function ReadyView({
-  pending, isObj6, whiteboardImageCount,
-}: { pending: PendingPayload | null; isObj6: boolean; whiteboardImageCount: number }) {
+  pending, isObj6, isObj5, isObj8, isWorksheetOnly, whiteboardImageCount, whiteboardAudioCount,
+}: {
+  pending:              PendingPayload | null;
+  isObj6:               boolean;
+  isObj5:               boolean;
+  isObj8:               boolean;
+  isWorksheetOnly:      boolean;
+  whiteboardImageCount: number;
+  whiteboardAudioCount: number;
+}) {
   const hasInline   = pending?.data && Object.keys(pending.data).length > 0;
   const hasFile     = !!pending?.worksheetFile;
   const mediaCount  = pending?.mediaUrls?.length ?? 0;
-  const usingWhiteboardFallback = !isObj6 && mediaCount === 0 && whiteboardImageCount > 0;
+
+  const isAudioObj = isObj5 || isObj8;
+  const usingWhiteboardFallback = !isObj6 && !isAudioObj && mediaCount === 0 && whiteboardImageCount > 0;
+  const usingWhiteboardAudio    = isAudioObj && mediaCount === 0 && whiteboardAudioCount > 0;
+
+  const mediaLabel = isObj6 ? "Avatar image"
+    : isAudioObj  ? (isObj8 ? "Audio clips (3)" : "Audio track")
+    : "Output image";
+
+  const mediaOk = mediaCount > 0 || usingWhiteboardFallback || usingWhiteboardAudio;
+  const mediaDetail = (() => {
+    if (mediaCount > 0) return `${mediaCount} uploaded`;
+    if (usingWhiteboardFallback) return "Will use most recent whiteboard image";
+    if (usingWhiteboardAudio)    return isObj8 ? `${whiteboardAudioCount} audio clip(s) in chat` : "Will use most recent audio";
+    if (isObj6)   return "Generate your avatar in the whiteboard";
+    if (isAudioObj) return "Generate audio in the whiteboard or drop files in chat";
+    return "Generate the output in the whiteboard";
+  })();
 
   return (
     <div className="space-y-2">
-      <div className="text-[12px] font-display font-bold text-white/80">What I'll grade</div>
+      <div className="text-[12px] font-display font-bold text-white/80">What I&apos;ll grade</div>
       <Row label="Worksheet"
            ok={!!(hasInline || hasFile)}
            detail={hasFile ? `📄 ${pending!.worksheetFile!.filename}` : hasInline ? "Filled in — ready" : "Not yet — open the worksheet and fill it in"}/>
-      <Row label={isObj6 ? "Avatar video" : "Comic image"}
-           ok={mediaCount > 0 || usingWhiteboardFallback}
-           detail={
-             mediaCount > 0
-               ? `${mediaCount} uploaded`
-               : usingWhiteboardFallback
-                 ? "Will use most recent whiteboard image"
-                 : isObj6 ? "Upload your MP4 in the worksheet" : "Generate a comic in the whiteboard or upload one"
-           }/>
+      {isWorksheetOnly ? (
+        // Worksheet-only objectives: image is optional. Show tick if present, hide row if not.
+        whiteboardImageCount > 0 && (
+          <Row label="Output image" ok detail="Generated in whiteboard"/>
+        )
+      ) : (
+        <Row label={mediaLabel} ok={mediaOk} detail={mediaDetail}/>
+      )}
       {pending?.notes && (
         <Row label="Your notes" ok detail={`"${pending.notes.slice(0, 80)}${pending.notes.length > 80 ? "…" : ""}"`}/>
       )}
@@ -990,12 +1368,18 @@ function ResultView({ result }: { result: FinalResult }) {
           {result.canvas.fieldFeedback.success     && <div>• <b>Success:</b> {result.canvas.fieldFeedback.success}</div>}
         </div>
       )}
-      {result.storyIt && !result.storyIt.passed && !result.storyIt.funnyTestBlocked && (
+      {result.storyIt && !result.storyIt.passed && !(result.storyIt as Record<string, unknown>).funnyTestBlocked && (
         <div className="text-[11px] space-y-1 p-2 rounded-md" style={{ background: "rgba(255,107,107,0.05)", border: "1px solid rgba(255,107,107,0.2)" }}>
           <div className="font-display font-bold mb-1" style={{ color: "#FF6B6B" }}>Story It checks</div>
-          {!result.storyIt.checks.setupTwistPayoff.passed    && <div>• {result.storyIt.checks.setupTwistPayoff.line}</div>}
-          {!result.storyIt.checks.panel3IsPunchline.passed   && <div>• {result.storyIt.checks.panel3IsPunchline.line}</div>}
-          {!result.storyIt.checks.characterConsistent.passed && <div>• {result.storyIt.checks.characterConsistent.line}</div>}
+          {result.storyIt.checks ? (
+            <>
+              {!result.storyIt.checks.setupTwistPayoff.passed    && <div>• {result.storyIt.checks.setupTwistPayoff.line}</div>}
+              {!result.storyIt.checks.panel3IsPunchline.passed   && <div>• {result.storyIt.checks.panel3IsPunchline.line}</div>}
+              {!result.storyIt.checks.characterConsistent.passed && <div>• {result.storyIt.checks.characterConsistent.line}</div>}
+            </>
+          ) : (
+            <div>• {(result.storyIt as Record<string, unknown>).summary as string ?? "Revisit your Story It answers — make each one more specific."}</div>
+          )}
         </div>
       )}
     </div>

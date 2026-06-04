@@ -459,8 +459,8 @@ const RIGHT_PANELS = [
   { arenaId: 7, src: "/panels/slide_skate.png",  alt: "Director Suite" },
 ] as const;
 
-function PanelImage({ arenaId, src, alt, onClick, locked }: {
-  arenaId: number; src: string; alt: string; onClick: (id: number) => void; locked: boolean;
+function PanelImage({ arenaId, src, alt, onClick, locked, imgClass = "hub-img" }: {
+  arenaId: number; src: string; alt: string; onClick: (id: number) => void; locked: boolean; imgClass?: string;
 }) {
   return (
     <motion.div
@@ -468,7 +468,7 @@ function PanelImage({ arenaId, src, alt, onClick, locked }: {
       role="button"
       tabIndex={0}
       aria-disabled={locked}
-      className="hub-img relative"
+      className={`${imgClass} relative`}
       style={{
         width:              "100%",
         backgroundImage:    `url(${src})`,
@@ -593,8 +593,9 @@ export default function HubPage() {
         .hub-grid { grid-template-columns: 23fr 34fr 23fr 20fr; }
         .hub-spacer { height: 18%; }
         .hub-col-left  { padding-left: 12px; padding-top: 60px; transform: translateX(120px); overflow: hidden; }
-        .hub-col-right { padding-right: 12px; padding-top: 60px; transform: translateY(40px); overflow: hidden; }
-        .hub-img { display: block; width: 100%; height: calc((100dvh - 38dvh - 68px) / 4); margin: 0; padding: 0; }
+        .hub-col-right { padding-right: 12px; padding-top: 60px; overflow: hidden; }
+        .hub-img      { display: block; width: 100%; height: calc((100dvh - 38dvh - 68px) / 4); margin: 0; padding: 0; }
+        .hub-img-right { display: block; width: 100%; height: calc((100dvh - 38dvh - 68px) / 3); margin: 0; padding: 0; }
         @media (max-width: 1280px) {
           .hub-grid { grid-template-columns: 25fr 30fr 25fr 20fr; }
         }
@@ -606,13 +607,15 @@ export default function HubPage() {
           .hub-spacer { height: 14%; }
           .hub-col-left  { padding-top: 32px; }
           .hub-col-right { padding-top: 32px; }
-          .hub-img { height: calc((100dvh - 20dvh - 60px) / 4); }
+          .hub-img       { height: calc((100dvh - 20dvh - 60px) / 4); }
+          .hub-img-right { height: calc((100dvh - 20dvh - 60px) / 3); }
         }
         @media (max-height: 600px) {
           .hub-spacer { height: 10%; }
           .hub-col-left  { padding-top: 16px; }
           .hub-col-right { padding-top: 16px; }
-          .hub-img { height: calc((100dvh - 20dvh - 60px) / 4); }
+          .hub-img       { height: calc((100dvh - 20dvh - 60px) / 4); }
+          .hub-img-right { height: calc((100dvh - 20dvh - 60px) / 3); }
         }
       `}</style>
 
@@ -674,11 +677,11 @@ export default function HubPage() {
         {/* Center — transparent */}
         <div />
 
-        {/* Right — 3 images */}
+        {/* Right — 3 images, same row height as left so 05↔01, 06↔02, 07↔03 */}
         <div className="hub-col-right">
           {RIGHT_PANELS.map(p => (
             <PanelImage key={p.arenaId} arenaId={p.arenaId} src={p.src} alt={p.alt} onClick={handleClick}
-              locked={!isArenaUnlocked(p.arenaId)} />
+              locked={!isArenaUnlocked(p.arenaId)} imgClass="hub-img" />
           ))}
         </div>
 

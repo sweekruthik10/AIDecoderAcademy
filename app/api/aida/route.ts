@@ -4,7 +4,7 @@ import { createAdminClient } from "@/lib/supabase";
 import { queryContext } from "@/lib/pinecone";
 import { getPageDoc } from "@/lib/aidaDocs";
 import { buildAidaSystemPrompt } from "@/lib/aidaPersona";
-import { OBJECTIVES, toLmsId } from "@/lib/objectives";
+import { OBJECTIVES, toLmsId, normalizeObjectiveId } from "@/lib/objectives";
 import { getRubric, getStagedRubric } from "@/lib/objectiveRubrics";
 import { moderateContent, detectDistress, buildDistressFooter, getRefusalLine } from "@/lib/aidaSafety";
 import { shouldAttachWhiteboard, wrapWhiteboardTranscript } from "@/lib/aidaWhiteboardRouter";
@@ -217,7 +217,8 @@ export async function POST(req: Request) {
     // (staged or single-pass) rubric so she can coach on tier/pass criteria.
     let activeObjective: Parameters<typeof buildAidaSystemPrompt>[0]["activeObjective"];
     if (objectiveId) {
-      const obj = OBJECTIVES.find(o => o.id === objectiveId);
+      const normalizedObjectiveId = normalizeObjectiveId(objectiveId);
+      const obj = OBJECTIVES.find(o => o.id === normalizedObjectiveId);
       const lmsId = obj ? toLmsId(obj.id) : objectiveId;
       const staged = getStagedRubric(lmsId);
       const single = !staged ? getRubric(lmsId) : null;

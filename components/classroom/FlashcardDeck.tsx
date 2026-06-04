@@ -7,30 +7,38 @@ import { ChevronLeft, ChevronRight, X, RotateCcw } from "lucide-react";
 export interface FlashCard {
   question: string;
   answer: string;
+  imagePrompt?: string;
+  imageUrl?: string;
+  imageError?: boolean;
 }
 
 export function parseFlashcards(markdown: string): FlashCard[] {
   const cards: FlashCard[] = [];
   let currentQ = "";
   let currentA = "";
+  let currentImg = "";
 
   for (const line of markdown.split("\n")) {
     const trimmed = line.trim();
     const qMatch = trimmed.match(/^\*\*Q:\*\*\s*(.+)/);
     const aMatch = trimmed.match(/^\*\*A:\*\*\s*(.+)/);
+    const imgMatch = trimmed.match(/^\*\*IMG:\*\*\s*(.+)/);
 
     if (qMatch) {
-      if (currentQ && currentA) cards.push({ question: currentQ, answer: currentA });
+      if (currentQ && currentA) cards.push({ question: currentQ, answer: currentA, imagePrompt: currentImg || undefined });
       currentQ = qMatch[1].trim();
       currentA = "";
+      currentImg = "";
     } else if (aMatch) {
       currentA = aMatch[1].trim();
-    } else if (currentA && trimmed && !trimmed.startsWith("**")) {
+    } else if (imgMatch) {
+      currentImg = imgMatch[1].trim();
+    } else if (currentA && !currentImg && trimmed && !trimmed.startsWith("**")) {
       currentA += " " + trimmed;
     }
   }
 
-  if (currentQ && currentA) cards.push({ question: currentQ, answer: currentA });
+  if (currentQ && currentA) cards.push({ question: currentQ, answer: currentA, imagePrompt: currentImg || undefined });
   return cards;
 }
 
@@ -38,11 +46,13 @@ interface Props {
   cards: FlashCard[];
   rawContent: string;
   chapterTitle: string;
+  isLoadingImages?: boolean;
   onClose: () => void;
   onSave: (content: string) => void;
+  onRetryImages?: (indices: number[]) => void;
 }
 
-export function FlashcardDeck({ cards, rawContent, chapterTitle, onClose, onSave }: Props) {
+export function FlashcardDeck({ cards, rawContent, chapterTitle, isLoadingImages, onClose, onSave, onRetryImages }: Props) {
   const [idx,      setIdx]      = useState(0);
   const [isFlipped, setFlipped] = useState(false);
   const [dir,      setDir]      = useState(1);
@@ -107,10 +117,12 @@ export function FlashcardDeck({ cards, rawContent, chapterTitle, onClose, onSave
   }, [go, onClose, phase]);
 
   const startRetry = () => {
-    setRetryQ([...unknown]);
+    const indices = [...unknown];
+    setRetryQ(indices);
     setRetryIdx(0);
     setFlipped(false);
     setPhase("retry");
+    onRetryImages?.(indices);
   };
 
   return (
@@ -121,6 +133,12 @@ export function FlashcardDeck({ cards, rawContent, chapterTitle, onClose, onSave
       className="absolute inset-0 flex flex-col items-center justify-center"
       style={{ zIndex: 60, background: "rgba(5,8,25,0.93)", backdropFilter: "blur(14px)" }}
     >
+      <style>{`
+        @keyframes shimmer {
+          0%   { background-position: 200% 0; }
+          100% { background-position: -200% 0; }
+        }
+      `}</style>
       {/* Close */}
       <button
         onClick={onClose}
@@ -185,23 +203,38 @@ export function FlashcardDeck({ cards, rawContent, chapterTitle, onClose, onSave
                     position: "relative",
                   }}
                 >
-                  {/* Front — Question */}
+                  {/* Front — Image + Question */}
                   <div style={{
                     position: "absolute", inset: 0, borderRadius: 20,
                     backfaceVisibility: "hidden",
                     WebkitBackfaceVisibility: "hidden" as React.CSSProperties["WebkitBackfaceVisibility"],
-                    background: "rgba(255,255,255,0.97)",
-                    boxShadow: "0 20px 60px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.08)",
-                    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-                    padding: "28px 32px", textAlign: "center",
+                    overflow: "hidden",
+                    background: "rgba(15,28,77,0.5)",
                   }}>
-                    <div className="rounded-full mb-5" style={{ width: 64, height: 3, background: "linear-gradient(90deg,#7C3AED,#2563eb)" }} />
-                    <p style={{ fontFamily: "'DM Sans',sans-serif", fontWeight: 700, fontSize: 17, color: "#0f1c4d", lineHeight: 1.55 }}>
-                      {currentCard.question}
-                    </p>
-                    <p className="mt-4 text-[10px] font-mono uppercase tracking-widest" style={{ color: "rgba(15,28,77,0.25)" }}>
-                      tap to reveal answer
-                    </p>
+                    {currentCard.imageUrl ? (
+                      <img src={currentCard.imageUrl} alt={currentCard.question}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{
+                        width: "100%", height: "100%",
+                        background: "linear-gradient(90deg, #e0e7ff 25%, #c7d2fe 50%, #e0e7ff 75%)",
+                        backgroundSize: "200% 100%",
+                        animation: "shimmer 1.5s infinite",
+                      }} />
+                    )}
+                    {/* Question overlay at bottom */}
+                    <div style={{
+                      position: "absolute", bottom: 0, left: 0, right: 0,
+                      padding: "16px 20px",
+                      background: "linear-gradient(to top, rgba(0,0,0,0.75), transparent)",
+                    }}>
+                      <p style={{ color: "#fff", fontWeight: 700, fontSize: 15, lineHeight: 1.4 }}>
+                        {currentCard.question}
+                      </p>
+                      <p style={{ color: "rgba(255,255,255,0.55)", fontSize: 10, marginTop: 4, fontFamily: "monospace" }}>
+                        tap to reveal answer
+                      </p>
+                    </div>
                   </div>
 
                   {/* Back — Answer */}

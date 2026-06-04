@@ -320,8 +320,10 @@ function CreationPreview({ creation }: { creation: Creation }) {
     try {
       const data = JSON.parse(content) as SlideData;
       if (data?.sections) return (
-        <div className="flex-1 w-full overflow-hidden scale-[0.82] origin-top-left" style={{ width: "122%" }}>
-          <SlideCarousel data={data}/>
+        <div className="flex-1 w-full overflow-hidden" style={{ position: "relative", minHeight: 0 }}>
+          <div className="origin-top-left" style={{ width: "122%", transform: "scale(0.82)" }}>
+            <SlideCarousel data={data}/>
+          </div>
         </div>
       );
     } catch { /* fall through */ }

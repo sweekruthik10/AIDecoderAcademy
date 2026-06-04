@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 
-export const runtime = "nodejs";
+export const runtime     = "nodejs";
+export const maxDuration = 60;
 
 // Domi (Supportive) — Strong, confident, warm female. Reads as a slightly
 // older peer / supportive mentor — pairs with the AIDA "Curious Friend"

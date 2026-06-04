@@ -24,6 +24,7 @@ interface Props {
   profile: Profile | null;
   chapterTitle?: string;
   hidden?: boolean;
+  compact?: boolean;
 }
 
 const GOLD      = "#E0B14C";
@@ -73,7 +74,7 @@ function deriveLearnerHints(profile: Profile | null): string[] {
 // and re-greets — the desired behaviour.
 let _bhavnaWelcomed = false;
 
-export function TeacherCharacter({ profile, chapterTitle, hidden }: Props) {
+export function TeacherCharacter({ profile, chapterTitle, hidden, compact }: Props) {
   const [chatOpen,    setChatOpen]    = useState(false);
   const [lectureOpen, setLectureOpen] = useState(false);
   const [welcomeOpen, setWelcomeOpen] = useState(false);
@@ -237,7 +238,7 @@ export function TeacherCharacter({ profile, chapterTitle, hidden }: Props) {
         style={{
           left:   "-8px",
           bottom: "0px",
-          height: "clamp(280px, 38vh, 460px)",
+          height: compact ? "clamp(140px, 18vh, 200px)" : "clamp(280px, 38vh, 460px)",
           width:  "auto",
         }}
       >

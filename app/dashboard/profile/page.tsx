@@ -120,7 +120,7 @@ function OnboardingFlow() {
   };
 
   return (
-    <div className="studio-bg min-h-full flex items-center justify-center p-8 text-white">
+    <div className="studio-bg min-h-full overflow-y-auto flex items-center justify-center p-6 sm:p-8 text-white">
       <div className="w-full max-w-lg">
         <div className="flex gap-2 justify-center mb-8">
           {[0,1].map(i => (
@@ -823,7 +823,7 @@ export default function ProfilePage() {
   }, []);
 
   if (loading) return (
-    <div className="studio-bg flex items-center justify-center" style={{ height: "100vh" }}>
+    <div className="studio-bg flex items-center justify-center" style={{ height: "100dvh" }}>
       <div className="flex gap-2">
         {[0,1,2].map(i => (
           <div key={i} className="dot w-3 h-3 rounded-full bg-[#C8FF00] shadow-[0_0_12px_rgba(200,255,0,0.45)]"/>

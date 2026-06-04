@@ -111,7 +111,9 @@ export async function POST(req: Request) {
       },
     });
   } catch (err) {
-    console.error("[classroom/chat]", err);
-    return new Response("Internal error", { status: 500 });
+    const detail = err instanceof Error ? `${err.message}\n${err.stack ?? ""}` : String(err);
+    console.error("[classroom/chat]", detail);
+    const body = process.env.NODE_ENV === "development" ? detail : "Internal error";
+    return new Response(body, { status: 500 });
   }
 }

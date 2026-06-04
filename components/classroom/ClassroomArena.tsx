@@ -4,7 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { FlashcardDeck, parseFlashcards } from "./FlashcardDeck";
 import type { FlashCard } from "./FlashcardDeck";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, Play, X } from "lucide-react";
+import { ChevronLeft, Play, X, FileText } from "lucide-react";
 import { MessageBubble } from "@/components/playground/MessageBubble";
 import type { Message }  from "@/components/playground/useChat";
 import ReactMarkdown from "react-markdown";
@@ -43,43 +43,95 @@ function getVideos(subject: string): VideoItem[] {
   }];
 }
 
-// Left toolbar tile hotspot positions (% of viewport)
+// Left toolbar tile positions — evenly fills the clean sidebar panel
 const TILES = [
-  { key:"notes",      label:"Notes",           active:true,  top:"11%" },
-  { key:"flashcards", label:"Flashcards",       active:true,  top:"22%" },
-  { key:"mindmap",    label:"Mind Map",         active:false, top:"33%" },
-  { key:"comic",      label:"Comic Creations",  active:false, top:"44%" },
-  { key:"explainer",  label:"Explainer Videos", active:false, top:"55%" },
-  { key:"audio",      label:"Audio Overview",   active:false, top:"66%" },
-  { key:"podcast",    label:"Audio Podcast",    active:false, top:"77%" },
-] as const;
+  { key:"notes",       label:"Notes",            top:"2%",  width:"13%" },
+  { key:"flashcards",  label:"Flashcards",        top:"13%", width:"13%" },
+  { key:"mindmap",     label:"Mind Map",          top:"24%", width:"13%" },
+  { key:"comic",       label:"Comic Creations",   top:"35%", width:"13%" },
+  { key:"explainer",   label:"Explainer Videos",  top:"46%", width:"13%" },
+  { key:"audio",       label:"Audio Overview",    top:"57%", width:"13%" },
+  { key:"podcast",     label:"Audio Podcast",     top:"68%", width:"13%" },
+  { key:"infographic", label:"Infographic",       top:"79%", width:"13%" },
+];
+
+// PNG overlay for each tile — placed on top of the baked-in background tiles
+const TILE_PNGS: Record<string, string> = {
+  notes:       "/classroom/Tiles/notes.png",
+  flashcards:  "/classroom/Tiles/flashcards.png",
+  mindmap:     "/classroom/Tiles/mindmap.png",
+  comic:       "/classroom/Tiles/comic creations.png",
+  explainer:   "/classroom/Tiles/explainer videos.png",
+  audio:       "/classroom/Tiles/audio overview.png",
+  podcast:     "/classroom/Tiles/audio podcast .png",
+  infographic: "/classroom/Tiles/infographic.png",
+};
 
 const TILE_PROMPTS: Record<string, (t: string) => string> = {
-  notes:      (t) => `Generate comprehensive study notes for "${t}" — CBSE Class 10 Science. Use clear headings, bullet points, key definitions, important equations, and a quick-revision summary. For equations, use plain text format only — no LaTeX. Write fractions as a/b or a ÷ b, use characters like θ, π, °, ±. Examples: sin(90° - θ) = cos(θ), csc(θ) = 1/sin(θ).`,
-  flashcards: (t) => `Generate 10 flashcards for "${t}" — CBSE Class 10 Science. Format each as:\n**Q:** [question]\n**A:** [answer]\n\nCover the most important definitions, reactions, and concepts for board exams. For any equations in answers, use plain text — no LaTeX.`,
+  notes:       (t) => `Generate comprehensive study notes for "${t}" — CBSE Class 10 Science. Use clear headings, bullet points, key definitions, important equations, and a quick-revision summary. For equations, use plain text format only — no LaTeX. Write fractions as a/b or a ÷ b, use characters like θ, π, °, ±.`,
+  flashcards:  (t) => `Generate 10 flashcards for "${t}" — CBSE Class 10 Science. Format EXACTLY as:\n\n**Q:** [question]\n**A:** [concise answer — key facts, definitions, equations]\n**IMG:** [image description tailored to the concept — adapt style: use diagram-style for molecules/structures/circuits, realistic-style for organisms/phenomena, illustrated-style for processes/reactions]\n\nRepeat for all 10 cards. Plain text only — no LaTeX.`,
+  mindmap:     (t) => `Create a detailed text-based mind map for "${t}" — CBSE Class 10 Science. Use indented bullet points to show the hierarchy: main topic → subtopics → key facts/equations. Keep it visual and easy to follow.`,
+  comic:       (t) => `Write a short comic strip script (5–6 panels) that teaches the key concepts of "${t}" — CBSE Class 10 Science. Each panel: [Scene description] + [Character dialogue]. Make it fun, accurate, and student-friendly.`,
+  audio:       (t) => `Write a 2-minute audio overview script for "${t}" — CBSE Class 10 Science. Use a friendly, conversational tone. Cover the most important concepts, one key equation, and end with a memorable takeaway.`,
+  podcast:     (t) => `Write a short podcast dialogue (host + expert guest) about "${t}" — CBSE Class 10 Science. 4–5 exchanges, covering key concepts, a real-world example, and a quick quiz question at the end. Keep it engaging for Class 10 students.`,
+  infographic: (t) => `Create a structured infographic outline for "${t}" — CBSE Class 10 Science. Use numbered sections with emoji labels: key facts, important numbers/equations, a real-world connection, and a did-you-know fact. Format it so it reads like an infographic in plain text.`,
 };
 
 const ACCENT     = "#2563eb";
 const ACCENT_GLO = "rgba(37,99,235,0.35)";
 
+const TILE_ACCENTS: Record<string, string> = {
+  notes:       "#7C3AED",
+  flashcards:  "#3B82F6",
+  mindmap:     "#22C55E",
+  comic:       "#EC4899",
+  explainer:   "#3B82F6",
+  audio:       "#06B6D4",
+  podcast:     "#F97316",
+  infographic: "#8B5CF6",
+};
+
 export function ClassroomArena({ chapter, onBack }: Props) {
   const [profile,    setProfile]    = useState<Profile | null>(null);
   const [input,      setInput]      = useState("");
-  const [activeHint, setActiveHint] = useState<string | null>(null);
   const [savedItems,   setSavedItems]   = useState<SavedItem[]>([]);
   const [viewingItem,  setViewingItem]  = useState<SavedItem | null>(null);
   const [binDragOver,  setBinDragOver]  = useState(false);
   const [messages,     setMessages]     = useState<Message[]>([]);
   const [isStreaming,  setIsStreaming]  = useState(false);
-  const [mode,           setMode]           = useState<"notes" | "videos">("notes");
+  const [mode,           setMode]           = useState("notes");
   const [playingVideo,   setPlayingVideo]   = useState<VideoItem | null>(null);
   const [flashcardCards, setFlashcardCards] = useState<FlashCard[] | null>(null);
   const [flashcardRaw,   setFlashcardRaw]   = useState("");
+  const [flashcardsLoading, setFlashcardsLoading] = useState(false);
+  const [hoveredTile,    setHoveredTile]    = useState<string | null>(null);
   const bottomRef           = useRef<HTMLDivElement>(null);
   const taRef               = useRef<HTMLTextAreaElement>(null);
   const pendingFlashcardRef = useRef(false);
   const wasStreamingRef     = useRef(false);
   const messagesRef         = useRef<Message[]>([]);
+
+  const generateFlashcardImages = useCallback(async (cards: FlashCard[]): Promise<FlashCard[]> => {
+    const results = await Promise.allSettled(
+      cards.map(async (card) => {
+        if (!card.imagePrompt) return card;
+        try {
+          const res = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: card.imagePrompt }),
+          });
+          const data = await res.json();
+          return { ...card, imageUrl: data.url ?? undefined, imageError: !data.url };
+        } catch {
+          return { ...card, imageError: true };
+        }
+      })
+    );
+    return results.map((r, i) =>
+      r.status === "fulfilled" ? r.value : { ...cards[i], imageError: true }
+    );
+  }, []);
 
   useEffect(() => {
     fetch("/api/profile")
@@ -111,14 +163,19 @@ export function ClassroomArena({ chapter, onBack }: Props) {
   }, [chapter.chapter_title]);
 
   // Sends to the dedicated classroom chat route (NOT /api/chat)
-  const sendMessage = useCallback(async (text: string) => {
+  // displayText = what to show in the bubble. Pass null to hide the user bubble entirely (tile actions).
+  const sendMessage = useCallback(async (text: string, displayText?: string | null) => {
     if (!profile || isStreaming || !text.trim()) return;
 
-    const userMsg: Message = { id: crypto.randomUUID(), role: "user",      content: text, outputType: "text", createdAt: new Date() };
     const asstId = crypto.randomUUID();
-    const asstMsg: Message = { id: asstId,             role: "assistant", content: "",   outputType: "text", isLoading: true, createdAt: new Date() };
+    const asstMsg: Message = { id: asstId, role: "assistant", content: "", outputType: "text", isLoading: true, createdAt: new Date() };
 
-    setMessages(prev => [...prev, userMsg, asstMsg]);
+    if (displayText !== null) {
+      const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: displayText ?? text, outputType: "text", createdAt: new Date() };
+      setMessages(prev => [...prev, userMsg, asstMsg]);
+    } else {
+      setMessages(prev => [...prev, asstMsg]);
+    }
     setIsStreaming(true);
 
     try {
@@ -156,9 +213,10 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         }
       }
     } catch (e) {
-      console.error("[classroom/chat]", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[classroom/chat]", msg);
       setMessages(prev => prev.map(m =>
-        m.id === asstId ? { ...m, content: "Sorry, something went wrong. Please try again.", isLoading: false } : m
+        m.id === asstId ? { ...m, content: `Sorry, something went wrong. Please try again.\n\n_Error: ${msg}_`, isLoading: false } : m
       ));
     } finally {
       setIsStreaming(false);
@@ -173,7 +231,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
 
-  // When flashcard stream finishes, auto-open the deck overlay
+  // When flashcard stream finishes, auto-open the deck overlay and generate images
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming && pendingFlashcardRef.current) {
       pendingFlashcardRef.current = false;
@@ -183,33 +241,43 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         if (parsed.length > 0) {
           setFlashcardCards(parsed);
           setFlashcardRaw(lastAssistant.content);
+          setFlashcardsLoading(true);
+          generateFlashcardImages(parsed).then(enriched => {
+            setFlashcardCards(enriched);
+            setFlashcardsLoading(false);
+          });
         }
       }
     }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming]);
+  }, [isStreaming, generateFlashcardImages]);
 
   const send = useCallback(async (text: string) => {
     const t = text.trim();
     if (!t || !profile || isStreaming) return;
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
-    await sendMessage(t);
-  }, [profile, isStreaming, sendMessage]);
+    const buildPrompt = TILE_PROMPTS[mode];
+    if (buildPrompt) {
+      if (mode === "flashcards") pendingFlashcardRef.current = true;
+      // Show user's typed text in the bubble; send the structured prompt to the API
+      await sendMessage(buildPrompt(t), t);
+    } else {
+      await sendMessage(t);
+    }
+  }, [profile, isStreaming, sendMessage, mode]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
   };
 
   const handleTileClick = useCallback((key: string) => {
-    if (!profile || isStreaming) return;
-    const buildPrompt = TILE_PROMPTS[key];
-    if (!buildPrompt) return;
-    if (key === "flashcards") pendingFlashcardRef.current = true;
-    setActiveHint(key);
-    setTimeout(() => setActiveHint(null), 900);
-    sendMessage(buildPrompt(chapter.chapter_title));
-  }, [profile, isStreaming, sendMessage, chapter.chapter_title]);
+    if (isStreaming) return;
+    if (!TILE_PROMPTS[key] && key !== "explainer") return;
+    setMode(key);
+    // Focus the input so user can type their topic immediately
+    setTimeout(() => taRef.current?.focus(), 50);
+  }, [isStreaming]);
 
   // Called by MessageBubble's save button → adds thumbnail + persists to creations
   const handleSave = useCallback((content: string, outputType: OutputType) => {
@@ -219,13 +287,14 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       : content.replace(/[#*`_]/g, "").slice(0, 50).trim() || chapter.chapter_title;
     const preview = content.replace(/^#{1,3}\s+.+$/m, "").replace(/[#*`_]/g, "").trim().slice(0, 60);
     const tempId = crypto.randomUUID();
-    setSavedItems(prev => [{ id: tempId, title, preview, content, tags: ["classroom", chapter.chapter_title], createdAt: Date.now() }, ...prev].slice(0, 10));
+    const saveTags = ["classroom", chapter.chapter_title, mode];
+    setSavedItems(prev => [{ id: tempId, title, preview, content, tags: saveTags, createdAt: Date.now() }, ...prev].slice(0, 10));
     fetch("/api/creations", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
         title, type:"chat", output_type: outputType, content,
-        tags: ["classroom", chapter.chapter_title],
+        tags: saveTags,
       }),
     })
       .then(r => r.ok ? r.json() : null)
@@ -238,22 +307,25 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         }
       })
       .catch(() => {});
-  }, [chapter.chapter_title]);
+  }, [chapter.chapter_title, mode]);
 
   const handleFlashcardSave = useCallback((content: string) => {
     const count = flashcardCards?.length ?? 10;
     const title = `Flashcards: ${chapter.chapter_title}`;
     const preview = `${count} flashcard${count !== 1 ? "s" : ""}`;
+    const contentWithImages = flashcardCards
+      ? content + "\n\n__images__:" + JSON.stringify(flashcardCards.map(c => c.imageUrl ?? null))
+      : content;
     const tempId = crypto.randomUUID();
     setSavedItems(prev => [
-      { id: tempId, title, preview, content, tags: ["classroom", chapter.chapter_title, "flashcards"], createdAt: Date.now() },
+      { id: tempId, title, preview, content: contentWithImages, tags: ["classroom", chapter.chapter_title, "flashcards"], createdAt: Date.now() },
       ...prev,
     ].slice(0, 10));
     fetch("/api/creations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title, type: "chat", output_type: "text", content,
+        title, type: "chat", output_type: "text", content: contentWithImages,
         tags: ["classroom", chapter.chapter_title, "flashcards"],
       }),
     })
@@ -266,7 +338,20 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       .catch(() => {});
   }, [chapter.chapter_title, flashcardCards]);
 
-  const canSend = input.trim().length > 0 && !isStreaming && !!profile;
+  const handleRetryImages = useCallback(async (indices: number[]) => {
+    if (!flashcardCards) return;
+    const updated = [...flashcardCards];
+    indices.forEach(i => { updated[i] = { ...updated[i], imageUrl: undefined, imageError: false }; });
+    setFlashcardCards([...updated]);
+    const enriched = await generateFlashcardImages(indices.map(i => updated[i]));
+    const final = [...updated];
+    indices.forEach((cardIdx, i) => { final[cardIdx] = enriched[i]; });
+    setFlashcardCards([...final]);
+  }, [flashcardCards, generateFlashcardImages]);
+
+  const canSend    = input.trim().length > 0 && !isStreaming && !!profile;
+  const tileAccent = TILE_ACCENTS[mode] ?? ACCENT;
+  const tileLabel  = TILES.find(t => t.key === mode)?.label ?? "this chapter";
 
   if (!profile) {
     return (
@@ -299,42 +384,19 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         <ChevronLeft className="w-3.5 h-3.5" /> Back
       </button>
 
-      {/* ── Chapter title — bigger, centered top ─────────────────────────────── */}
-      <div className="absolute flex flex-col items-center"
-        style={{ top:10, left:"50%", transform:"translateX(-50%)", zIndex:25 }}>
-        <div className="px-5 py-2 rounded-2xl"
-          style={{ background:"rgba(0,0,0,0.55)", backdropFilter:"blur(12px)",
-            border:"1px solid rgba(255,255,255,0.15)" }}>
-          <p className="font-display font-black text-base whitespace-nowrap"
-            style={{ color:"#fff", letterSpacing:"0.01em" }}>
-            {chapter.chapter_title}
-          </p>
-          <p className="text-[11px] font-mono text-center mt-0.5" style={{ color:"rgba(255,255,255,0.45)" }}>
-            CBSE Class 10 · Science
-          </p>
-        </div>
-      </div>
 
-      {/* ── Toolbar hotspot: Notes (invisible clickable zone) ────────────────── */}
-      <div
-        onClick={() => setMode("notes")}
-        className="absolute"
-        style={{ left:"0", top:"10%", width:"10%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
-
-      {/* ── Toolbar hotspot: Flashcards (invisible clickable zone) ───────────── */}
-      <div
-        onClick={() => { setMode("notes"); handleTileClick("flashcards"); }}
-        className="absolute"
-        style={{ left:"0", top:"21%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
-
-      {/* ── Toolbar hotspot: Explainer Videos (invisible clickable zone) ─────── */}
-      <div
-        onClick={() => setMode("videos")}
-        className="absolute"
-        style={{ left:0, top:"45%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
+      {/* ── All toolbar hotspots — invisible clickable zones over background tiles ── */}
+      {TILES.map(tile => (
+        <div key={tile.key}
+          onClick={() => {
+            setMode(tile.key);
+            if (tile.key !== "explainer") handleTileClick(tile.key);
+          }}
+          className="absolute"
+          style={{ left:0, top:tile.top, width:tile.width, height:"10.5%",
+            zIndex:25, cursor:"pointer" }}
+        />
+      ))}
 
       {/* ── My Creations / Videos panel — overlaid on left wall panel ─────────── */}
       <div className="absolute overflow-y-auto"
@@ -343,65 +405,86 @@ export function ClassroomArena({ chapter, onBack }: Props) {
 
         <AnimatePresence mode="wait">
 
-          {/* ── NOTES mode ── */}
-          {mode === "notes" && (
+          {/* ── All content modes (notes, flashcards, mindmap, comic, audio, podcast) ── */}
+          {mode !== "explainer" && (
             <motion.div key="notes-panel"
               initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
               transition={{ duration:0.18 }}>
-              <AnimatePresence>
-                {savedItems.map((item) => {
-                  const isFC = item.tags.includes("flashcards");
-                  return (
-                    <div key={item.id} draggable
-                      onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
-                        e.dataTransfer.setData("application/classroom-item", item.id);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}>
-                      <motion.div
-                        initial={{ opacity:0, y:-8, scale:0.95 }}
-                        animate={{ opacity:1, y:0,  scale:1 }}
-                        transition={{ duration:0.25 }}
-                        onClick={() => {
-                          if (isFC) {
-                            const parsed = parseFlashcards(item.content);
-                            if (parsed.length > 0) { setFlashcardCards(parsed); setFlashcardRaw(item.content); }
-                          } else {
-                            setViewingItem(item);
-                          }
-                        }}
-                        className="rounded-xl p-3 mb-2 cursor-grab"
-                        whileHover={{ scale:1.02, boxShadow: isFC ? "0 4px 16px rgba(124,58,237,0.25)" : "0 4px 16px rgba(37,99,235,0.2)" }}
-                        style={{ background:"rgba(255,255,255,0.88)",
-                          border: `1px solid ${isFC ? "rgba(124,58,237,0.25)" : "rgba(37,99,235,0.2)"}`,
-                          boxShadow:"0 2px 12px rgba(15,28,77,0.1)" }}>
-                        <div className="w-full h-1 rounded-full mb-2"
-                          style={{ background: isFC ? "#7C3AED" : "linear-gradient(90deg,#2563eb,#7c3aed)" }} />
-                        {isFC && (
-                          <p className="text-[9px] font-mono uppercase tracking-widest mb-1"
-                            style={{ color:"rgba(124,58,237,0.7)" }}>
-                            ⚡ {item.preview}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                <AnimatePresence>
+                  {savedItems.filter(item => item.tags.includes(mode)).map((item, idx) => {
+                    const isFC = item.tags.includes("flashcards");
+                    return (
+                      <div key={item.id} draggable
+                        onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
+                          e.dataTransfer.setData("application/classroom-item", item.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}>
+                        <motion.div
+                          initial={{ opacity:0, y:-8, scale:0.95 }}
+                          animate={{ opacity:1, y:0,  scale:1 }}
+                          transition={{ duration:0.25, delay: Math.min(idx * 0.04, 0.2) }}
+                          onClick={() => {
+                            if (isFC) {
+                              const parsed = parseFlashcards(item.content);
+                              const imgMatch = item.content.match(/__images__:(\[.*?\])/s);
+                              if (imgMatch) {
+                                try {
+                                  const urls: (string|null)[] = JSON.parse(imgMatch[1]);
+                                  urls.forEach((url, i) => { if (url && parsed[i]) parsed[i].imageUrl = url; });
+                                } catch { /* ignore json parse errors */ }
+                              }
+                              if (parsed.length > 0) { setFlashcardCards(parsed); setFlashcardRaw(item.content); }
+                            } else {
+                              setViewingItem(item);
+                            }
+                          }}
+                          className="cursor-grab"
+                          whileHover={{ scale:1.04, boxShadow: isFC ? "0 6px 20px rgba(124,58,237,0.28)" : "0 6px 20px rgba(37,99,235,0.28)" }}
+                          style={{ borderRadius:10,
+                            background:"rgba(255,255,255,0.95)",
+                            border:`1px solid ${isFC ? "rgba(124,58,237,0.2)" : "rgba(37,99,235,0.15)"}`,
+                            boxShadow:"0 2px 8px rgba(15,28,77,0.09)",
+                            overflow:"hidden",
+                            display:"flex", flexDirection:"column",
+                            alignItems:"center", padding:"10px 7px 9px",
+                            textAlign:"center", gap:0 }}>
+                          <FileText
+                            style={{ color: isFC ? "#7C3AED" : "#2563eb", marginBottom:6, flexShrink:0 }}
+                            size={26}
+                            strokeWidth={1.6}
+                          />
+                          <div style={{ width:"72%", height:2, borderRadius:2,
+                            background: isFC ? "#7C3AED" : "linear-gradient(90deg,#2563eb,#7c3aed)",
+                            marginBottom:6, flexShrink:0 }} />
+                          {isFC && (
+                            <p style={{ fontSize:9, fontFamily:"monospace", textTransform:"uppercase",
+                              letterSpacing:"0.08em", color:"rgba(124,58,237,0.7)", marginBottom:3 }}>
+                              ⚡ {item.preview}
+                            </p>
+                          )}
+                          <p style={{ fontSize:10, fontWeight:700, color:"#0f1c4d",
+                            lineHeight:1.3, display:"-webkit-box", WebkitLineClamp: isFC ? 2 : 3,
+                            WebkitBoxOrient:"vertical", overflow:"hidden",
+                            wordBreak:"break-word" }}>
+                            {item.title}
                           </p>
-                        )}
-                        <p className="text-xs font-bold leading-snug"
-                          style={{ color:"#0f1c4d", display:"-webkit-box",
-                            WebkitLineClamp: isFC ? 2 : 3, WebkitBoxOrient:"vertical", overflow:"hidden" }}>
-                          {item.title}
-                        </p>
-                      </motion.div>
-                    </div>
-                  );
-                })}
-              </AnimatePresence>
-              {savedItems.length === 0 && (
+                        </motion.div>
+                      </div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+              {savedItems.filter(item => item.tags.includes(mode)).length === 0 && (
                 <p className="text-[10px] text-center pt-3 opacity-30" style={{ color:"#0f1c4d" }}>
-                  Saved items<br/>appear here
+                  Saved {tileLabel.toLowerCase()}<br/>appear here
                 </p>
               )}
             </motion.div>
           )}
 
-          {/* ── VIDEOS mode ── */}
-          {mode === "videos" && (
+          {/* ── EXPLAINER VIDEOS mode ── */}
+          {mode === "explainer" && (
             <motion.div key="videos-panel"
               initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
               transition={{ duration:0.18 }}>
@@ -574,10 +657,51 @@ export function ClassroomArena({ chapter, onBack }: Props) {
           font-weight: 700;
         }
       `}</style>
+      {/* ── Chat overlay — transparent bg, floats on whiteboard ────────────── */}
       <div className="absolute flex flex-col classroom-chat"
-        style={{ left:"36%", top:"10%", width:"60%", height:"70%", zIndex:15 }}>
+        style={{ left:"36%", top:"7%", width:"60%", height:"70%", zIndex:15 }}>
 
-        {/* Message list — no background, messages float on the whiteboard */}
+        {/* Chapter pill — full width with rounded ends */}
+        <div className="flex-shrink-0" style={{ padding: "10px 0 2px" }}>
+          <div style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 8,
+            padding: "6px 16px",
+            borderRadius: 40,
+            background: "rgba(255,255,255,0.92)",
+            border: "1px solid rgba(37,99,235,0.22)",
+            boxShadow: "0 2px 12px rgba(37,99,235,0.10)",
+            backdropFilter: "blur(20px)",
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+              background: "#2563eb", boxShadow: "0 0 6px #2563eb",
+            }}/>
+            <span style={{
+              fontSize: 8, fontWeight: 800, letterSpacing: "0.12em",
+              color: "#2563eb", textTransform: "uppercase",
+              fontFamily: "'Syne', sans-serif", flexShrink: 0,
+            }}>CHAPTER</span>
+            <div style={{ width: 1, height: 12, background: "rgba(0,0,0,0.12)", flexShrink: 0 }}/>
+            <span style={{
+              flex: 1, fontSize: 11, fontWeight: 700,
+              color: "#0a0a2e",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              fontFamily: "'DM Sans', sans-serif",
+            }}>{chapter.chapter_title}</span>
+            {TILES.some(t => t.key === mode) && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+                color: tileAccent, textTransform: "uppercase",
+                fontFamily: "'Syne', sans-serif",
+                background: `${tileAccent}18`,
+                border: `1px solid ${tileAccent}40`,
+                borderRadius: 20, padding: "2px 8px", flexShrink: 0,
+              }}>{tileLabel}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Message list */}
         <div className="flex-1 min-h-0 overflow-y-auto"
           style={{ padding:"12px 14px 6px", display:"flex", flexDirection:"column",
             gap:8, scrollbarWidth:"none" }}>
@@ -605,7 +729,6 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             />
           ))}
 
-          {/* Streaming dots */}
           {isStreaming && (
             <div style={{ display:"flex", gap:4, padding:"2px 0 2px 28px" }}>
               {[0,1,2].map(i => (
@@ -619,15 +742,15 @@ export function ClassroomArena({ chapter, onBack }: Props) {
           <div ref={bottomRef} />
         </div>
 
-        {/* ── Input bar — dark pill, Creator's Room style ────────────────────── */}
+        {/* Prompt bar */}
         <div style={{ flexShrink:0, padding:"0 4px 8px" }}>
           <div style={{ display:"flex", alignItems:"center", gap:8,
             background:"linear-gradient(180deg, rgba(18,28,72,0.92) 0%, rgba(10,16,52,0.95) 100%)",
             backdropFilter:"blur(24px)",
             borderRadius:16, padding:"10px 12px",
-            border:"1px solid rgba(100,140,255,0.25)",
-            boxShadow:"0 0 0 1px rgba(100,140,255,0.08), 0 4px 24px rgba(0,0,50,0.4), inset 0 1px 0 rgba(255,255,255,0.1)" }}>
-
+            border:`2px solid ${tileAccent}`,
+            transition:"border-color 0.3s ease, box-shadow 0.3s ease",
+            boxShadow:`0 0 0 1px ${tileAccent}30, 0 4px 24px rgba(0,0,50,0.4), 0 0 20px ${tileAccent}25, inset 0 1px 0 rgba(255,255,255,0.1)` }}>
             <textarea
               ref={taRef}
               value={input}
@@ -638,23 +761,22 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                 t.style.height = Math.min(t.scrollHeight, 80) + "px";
               }}
               onKeyDown={handleKey}
-              placeholder="Ask anything about this chapter…"
+              placeholder={mode !== "notes" && TILE_PROMPTS[mode] ? `Type a topic for ${TILES.find(t => t.key === mode)?.label ?? mode}…` : "Ask anything about this chapter…"}
               rows={1}
               disabled={!profile}
               style={{ flex:1, resize:"none", border:"none", outline:"none",
                 background:"transparent", fontSize:15, fontWeight:500,
                 color:"rgba(255,255,255,0.92)", fontFamily:"inherit",
                 lineHeight:1.5, overflowY:"hidden",
-                caretColor:ACCENT, userSelect:"text" }}
+                caretColor:tileAccent, userSelect:"text" }}
             />
-
             <button onClick={() => send(input)} disabled={!canSend}
               style={{ width:34, height:34, borderRadius:"50%", flexShrink:0,
-                background: canSend ? `rgba(37,99,235,0.9)` : "rgba(255,255,255,0.08)",
+                background: canSend ? tileAccent : "rgba(255,255,255,0.08)",
                 border:"none", cursor: canSend ? "pointer" : "not-allowed",
                 display:"flex", alignItems:"center", justifyContent:"center",
-                transition:"all 0.2s",
-                boxShadow: canSend ? `0 0 16px rgba(37,99,235,0.6)` : "none" }}>
+                transition:"all 0.3s ease",
+                boxShadow: canSend ? `0 0 16px ${tileAccent}99` : "none" }}>
               <svg width="13" height="13" viewBox="0 0 18 18" fill="none">
                 <path d="M2 9h14M9 2l7 7-7 7"
                   stroke={canSend ? "#fff" : "rgba(255,255,255,0.2)"}
@@ -728,8 +850,10 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             cards={flashcardCards}
             rawContent={flashcardRaw}
             chapterTitle={chapter.chapter_title}
+            isLoadingImages={flashcardsLoading}
             onClose={() => setFlashcardCards(null)}
             onSave={handleFlashcardSave}
+            onRetryImages={handleRetryImages}
           />
         )}
       </AnimatePresence>

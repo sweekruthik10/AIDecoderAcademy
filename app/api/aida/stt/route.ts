@@ -1,6 +1,7 @@
 import { auth } from "@clerk/nextjs/server";
 
-export const runtime = "nodejs";
+export const runtime     = "nodejs";
+export const maxDuration = 60;
 
 const MAX_BODY_BYTES = 5 * 1024 * 1024; // 5 MB cap on uploaded audio
 
