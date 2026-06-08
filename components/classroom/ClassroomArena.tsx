@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { FlashcardDeck, parseFlashcards } from "./FlashcardDeck";
 import type { FlashCard } from "./FlashcardDeck";
 import { AnimatePresence, motion } from "framer-motion";
@@ -43,16 +44,19 @@ function getVideos(subject: string): VideoItem[] {
   }];
 }
 
-// Left toolbar tile positions — evenly fills the clean sidebar panel
+// Left toolbar tile positions — evenly fills the clean sidebar panel.
+// left/width cover only the label text area (icon is to the left of label).
+// Tiles start a few % from the screen edge; label sits in the right ~60% of
+// each card. Adjust left/width if the background image shifts on your screen.
 const TILES = [
-  { key:"notes",       label:"Notes",            top:"2%",  width:"13%" },
-  { key:"flashcards",  label:"Flashcards",        top:"13%", width:"13%" },
-  { key:"mindmap",     label:"Mind Map",          top:"24%", width:"13%" },
-  { key:"comic",       label:"Comic Creations",   top:"35%", width:"13%" },
-  { key:"explainer",   label:"Explainer Videos",  top:"46%", width:"13%" },
-  { key:"audio",       label:"Audio Overview",    top:"57%", width:"13%" },
-  { key:"podcast",     label:"Audio Podcast",     top:"68%", width:"13%" },
-  { key:"infographic", label:"Infographic",       top:"79%", width:"13%" },
+  { key:"notes",       label:"Notes",            top:"2%",  left:"5%", width:"5%", height:"10.5%" },
+  { key:"flashcards",  label:"Flashcards",        top:"13%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"mindmap",     label:"Mind Map",          top:"24%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"comic",       label:"Comic Creations",   top:"35%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"explainer",   label:"Explainer Videos",  top:"46%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"audio",       label:"Audio Overview",    top:"57%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"podcast",     label:"Audio Podcast",     top:"60%", left:"5%", width:"5%", height:"9%"   },
+  { key:"infographic", label:"Infographic",       top:"76%", left:"5%", width:"5%", height:"8%"   },
 ];
 
 // PNG overlay for each tile — placed on top of the baked-in background tiles
@@ -104,7 +108,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
   const [flashcardCards, setFlashcardCards] = useState<FlashCard[] | null>(null);
   const [flashcardRaw,   setFlashcardRaw]   = useState("");
   const [flashcardsLoading, setFlashcardsLoading] = useState(false);
-  const [hoveredTile,    setHoveredTile]    = useState<string | null>(null);
+  const [mounted,        setMounted]        = useState(false);
   const bottomRef           = useRef<HTMLDivElement>(null);
   const taRef               = useRef<HTMLTextAreaElement>(null);
   const pendingFlashcardRef = useRef(false);
@@ -132,6 +136,8 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       r.status === "fulfilled" ? r.value : { ...cards[i], imageError: true }
     );
   }, []);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     fetch("/api/profile")
@@ -385,18 +391,25 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       </button>
 
 
-      {/* ── All toolbar hotspots — invisible clickable zones over background tiles ── */}
-      {TILES.map(tile => (
-        <div key={tile.key}
-          onClick={() => {
-            setMode(tile.key);
-            if (tile.key !== "explainer") handleTileClick(tile.key);
-          }}
-          className="absolute"
-          style={{ left:0, top:tile.top, width:tile.width, height:"10.5%",
-            zIndex:25, cursor:"pointer" }}
-        />
-      ))}
+      {/* Tile click zones — rendered via React Portal into document.body so   */}
+      {/* they live outside every stacking context in the layout tree.         */}
+      {mounted && createPortal(
+        TILES.map(tile => (
+          <div
+            key={tile.key}
+            style={{
+              position: "fixed",
+              left: tile.left, top: tile.top, width: tile.width, height: tile.height,
+              zIndex: 9999, cursor: "pointer",
+            }}
+            onClick={() => {
+              setMode(tile.key);
+              if (tile.key !== "explainer") handleTileClick(tile.key);
+            }}
+          />
+        )),
+        document.body
+      )}
 
       {/* ── My Creations / Videos panel — overlaid on left wall panel ─────────── */}
       <div className="absolute overflow-y-auto"
