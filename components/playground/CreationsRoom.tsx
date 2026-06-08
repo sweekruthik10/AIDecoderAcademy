@@ -422,7 +422,10 @@ export function CreationsRoom({
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  const canSend = (input.trim().length > 0 || injected.length > 0) && !isStreaming;
+  // Block send while any injected file is still uploading to Supabase.
+  // Without this, the message is sent with a data-URL instead of an https:// URL,
+  // and the document marker never reaches TeacherCharacter (it requires https://).
+  const canSend = (input.trim().length > 0 || injected.length > 0) && !isStreaming && uploadingIds.size === 0;
 
   const injectCreation = (c: Creation) => {
     setInjected(prev => {
@@ -486,6 +489,15 @@ export function CreationsRoom({
   };
 
   const getOutputTypeForFile = (file: File): OutputType | null => {
+    // Extension check runs first — .mp4 and .m4a are audio exports from Suno.ai
+    // and ElevenLabs even though their MIME type is video/mp4.
+    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
+    if (["png","jpg","jpeg","gif","webp","svg","bmp","avif"].includes(ext)) return "image";
+    if (["mp3","wav","ogg","aac","m4a","mp4","flac"].includes(ext)) return "audio";
+    if (["mov","webm","avi","mkv","m4v"].includes(ext)) return "video";
+    if (["pdf","doc","docx"].includes(ext)) return "text";
+    if (["ppt","pptx"].includes(ext)) return "slides";
+    // Fall back to MIME type for unknown extensions
     const t = file.type.toLowerCase();
     if (t.startsWith("image/")) return "image";
     if (t.startsWith("audio/")) return "audio";
@@ -499,13 +511,6 @@ export function CreationsRoom({
       t === "application/vnd.ms-powerpoint" ||
       t === "application/vnd.openxmlformats-officedocument.presentationml.presentation"
     ) return "slides";
-    // Also check by extension for cases where MIME is generic
-    const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
-    if (["png","jpg","jpeg","gif","webp","svg","bmp","avif"].includes(ext)) return "image";
-    if (["mp3","wav","ogg","aac","m4a","flac"].includes(ext)) return "audio";
-    if (["mp4","mov","webm","avi","mkv","m4v"].includes(ext)) return "video";
-    if (["pdf","doc","docx"].includes(ext)) return "text";
-    if (["ppt","pptx"].includes(ext)) return "slides";
     return null;
   };
 
@@ -603,6 +608,96 @@ export function CreationsRoom({
         <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 6, padding: "0 4px" }}>
           {injected.map((item, i) => {
             const isUploading = uploadingIds.has(item.id);
+            const removeBtn = (
+              <button onClick={() => setInjected(prev => prev.filter((_, j) => j !== i))}
+                style={{
+                  position: "absolute", top: -5, right: -5,
+                  background: "rgba(10,10,20,0.85)", border: "1.5px solid rgba(255,255,255,0.3)",
+                  borderRadius: "50%", width: 17, height: 17, cursor: "pointer",
+                  color: "rgba(255,255,255,0.85)", fontSize: 11, lineHeight: 1,
+                  display: "flex", alignItems: "center", justifyContent: "center", padding: 0,
+                }}>×</button>
+            );
+
+            // ── Image item → thumbnail card ──────────────────────────────────
+            if (item.output_type === "image") {
+              const src = item.file_url
+                ?? (typeof item.content === "string" && item.content.match(/^(https?:|data:image)/) ? item.content : null);
+              return (
+                <div key={item.id} style={{ position: "relative", flexShrink: 0 }}>
+                  <div style={{
+                    width: 72, height: 52, borderRadius: 8, overflow: "hidden",
+                    border: "1.5px solid rgba(255,255,255,0.25)",
+                    background: "rgba(255,255,255,0.08)",
+                    display: "flex", alignItems: "center", justifyContent: "center",
+                    transition: "opacity 0.2s", opacity: isUploading ? 0.5 : 1,
+                  }}>
+                    {src ? (
+                      <img src={src} alt={item.title} draggable={false}
+                        style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                    ) : (
+                      <span style={{ fontSize: 20 }}>🖼️</span>
+                    )}
+                  </div>
+                  <div style={{
+                    fontSize: 8, fontWeight: 600, color: "rgba(255,255,255,0.65)",
+                    maxWidth: 72, overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "nowrap", textAlign: "center", marginTop: 2,
+                  }}>
+                    {isUploading ? "Uploading…" : item.title}
+                  </div>
+                  {removeBtn}
+                </div>
+              );
+            }
+
+            // ── Document item → doc-icon card ────────────────────────────────
+            // Detected by data-URL prefix (before upload) or file_url extension (after).
+            const isDoc = item.output_type === "text" && (
+              (typeof item.content === "string" && item.content.startsWith("data:application")) ||
+              !!(item.file_url && /\.(docx|pdf|doc)$/i.test(item.file_url))
+            );
+            if (isDoc) {
+              return (
+                <div key={item.id} style={{ position: "relative", flexShrink: 0 }}>
+                  <div style={{
+                    width: 72, height: 52, borderRadius: 8,
+                    border: "1.5px solid rgba(255,255,255,0.25)",
+                    background: "rgba(255,255,255,0.08)",
+                    display: "flex", flexDirection: "column", alignItems: "center",
+                    justifyContent: "center", gap: 3,
+                    transition: "opacity 0.2s", opacity: isUploading ? 0.5 : 1,
+                  }}>
+                    {isUploading ? (
+                      <span style={{ fontSize: 18 }}>⏳</span>
+                    ) : (
+                      <>
+                        <svg width="18" height="22" viewBox="0 0 18 22" fill="none">
+                          <path d="M11 1H3a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V6L11 1z"
+                            stroke="rgba(255,255,255,0.75)" strokeWidth="1.4" strokeLinejoin="round"/>
+                          <path d="M11 1v5h5" stroke="rgba(255,255,255,0.75)" strokeWidth="1.4" strokeLinejoin="round"/>
+                          <line x1="4" y1="12" x2="13" y2="12" stroke="rgba(255,255,255,0.45)" strokeWidth="1.1" strokeLinecap="round"/>
+                          <line x1="4" y1="15" x2="10" y2="15" stroke="rgba(255,255,255,0.45)" strokeWidth="1.1" strokeLinecap="round"/>
+                        </svg>
+                        <span style={{ fontSize: 7, color: "rgba(255,255,255,0.45)", fontWeight: 700, letterSpacing: 0.5 }}>
+                          {item.file_url?.toLowerCase().endsWith(".pdf") ? "PDF" : "DOCX"}
+                        </span>
+                      </>
+                    )}
+                  </div>
+                  <div style={{
+                    fontSize: 8, fontWeight: 600, color: "rgba(255,255,255,0.65)",
+                    maxWidth: 72, overflow: "hidden", textOverflow: "ellipsis",
+                    whiteSpace: "nowrap", textAlign: "center", marginTop: 2,
+                  }}>
+                    {isUploading ? "Uploading…" : item.title}
+                  </div>
+                  {removeBtn}
+                </div>
+              );
+            }
+
+            // ── Default → keep existing pill style for audio, slides, etc. ──
             return (
             <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 4 }}>
               <div style={{
@@ -614,11 +709,10 @@ export function CreationsRoom({
                 border: `1px solid ${isUploading ? "rgba(255,255,255,0.2)" : `rgba(${OUTPUT_META[item.output_type]?.glowRgb ?? "200,160,255"},0.5)`}`,
                 fontSize: 10, fontWeight: 600,
                 color: isUploading ? "rgba(255,255,255,0.4)" : (OUTPUT_META[item.output_type]?.glowColor ?? "#c8a0ff"),
-                maxWidth: 180,
-                transition: "all 0.3s ease",
+                maxWidth: 180, transition: "all 0.3s ease",
               }}>
                 <span style={{ fontSize: 9, opacity: 0.7 }}>
-                  {isUploading ? "⏳" : item.output_type === "image" ? "🖼️" : item.output_type === "audio" ? "🎵" : item.output_type === "slides" ? "📊" : "📄"}
+                  {isUploading ? "⏳" : item.output_type === "audio" ? "🎵" : item.output_type === "slides" ? "📊" : "📄"}
                 </span>
                 <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                   {isUploading ? `Uploading ${item.title}…` : item.title}
@@ -638,6 +732,11 @@ export function CreationsRoom({
         {plusOpen && (
           <div style={{
             position: "absolute", bottom: "calc(100% + 8px)", left: 0, right: 0,
+            // Cap height so the panel never escapes above the whiteboard frame on
+            // any screen size. overflowY: auto adds a scrollbar if the content
+            // is taller than the available space.
+            maxHeight: "min(520px, calc(100vh - 180px))",
+            overflowY: "auto",
             // Steel-and-cyan METALLIC — same panel signature as the AIDA chat.
             // Independent of arenaAccent so it always reads as the "white-blue"
             // chrome theme regardless of which arena the kid is in.
@@ -662,7 +761,8 @@ export function CreationsRoom({
               "0 18px 60px rgba(0,0,0,0.7)",
             backdropFilter: "blur(22px)",
             zIndex:        50,
-            display:       "flex", flexDirection: "column", gap: 12,
+            display:       "flex", flexDirection: "column", gap: 8,
+            scrollbarWidth: "thin",
           }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
               <span style={{
@@ -704,7 +804,7 @@ export function CreationsRoom({
               style={{ display: "none" }} onChange={handleFileUpload}/>
             <button onClick={() => fileRef.current?.click()}
               style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
                 border:     "1px solid rgba(0,212,255,0.28)",
                 background:
                   "linear-gradient(180deg, " +
@@ -713,8 +813,8 @@ export function CreationsRoom({
                     "rgba(14,28,56,0.55) 100%" +
                   ")",
                 color:      "rgba(232,244,255,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 textAlign:  "left",
                 boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,212,255,0)",
               }}
@@ -732,33 +832,94 @@ export function CreationsRoom({
               }}
             >
               <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(180deg, #7DD3FC 0%, #00D4FF 50%, #0284C7 100%)",
                 border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(0,212,255,0.55)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(0,212,255,0.55)",
               }}>
-                <ImageIcon size={20} style={{ color: "#031024" }} />
+                <ImageIcon size={16} style={{ color: "#031024" }} />
               </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
                   Upload screenshots
                 </span>
-                <span style={{ fontSize: 10, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 9, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
                   PNG · JPG · WEBP — multiple
                 </span>
               </span>
             </button>
 
-            {/* Video file */}
+            {/* Audio file — MP4 / MP3 / M4A from Suno.ai, ElevenLabs, etc. */}
             <input type="file"
-              accept="video/mp4,video/mov,video/webm,video/avi,video/x-matroska,.mp4,.mov,.webm,.avi,.mkv,.m4v"
+              accept="audio/*,.mp3,.mp4,.m4a,.wav,.ogg,.aac,.flac"
+              style={{ display: "none" }}
+              id="audio-upload-input"
+              onChange={handleFileUpload}/>
+
+            {/* Video file — non-MP4 video formats */}
+            <input type="file"
+              accept="video/mov,video/webm,video/avi,video/x-matroska,.mov,.webm,.avi,.mkv,.m4v"
               style={{ display: "none" }}
               id="video-upload-input"
               onChange={handleFileUpload}/>
+            {/* Audio upload button — MP4/MP3/M4A from Suno.ai, ElevenLabs, etc. */}
+            <button onClick={() => (document.getElementById("audio-upload-input") as HTMLInputElement)?.click()}
+              style={{
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
+                border:     "1px solid rgba(0,170,255,0.28)",
+                background:
+                  "linear-gradient(180deg, " +
+                    "rgba(0,60,100,0.32) 0%, " +
+                    "rgba(0,30,60,0.55) 50%, " +
+                    "rgba(0,20,45,0.55) 100%" +
+                  ")",
+                color:      "rgba(180,230,255,0.92)",
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
+                textAlign:  "left",
+                boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,170,255,0)",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background =
+                  "linear-gradient(180deg, rgba(0,60,100,0.55) 0%, rgba(0,30,60,0.7) 50%, rgba(0,20,45,0.7) 100%)";
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(0,170,255,0.85)";
+                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.18), 0 0 22px rgba(0,170,255,0.45)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background =
+                  "linear-gradient(180deg, rgba(0,60,100,0.32) 0%, rgba(0,30,60,0.55) 50%, rgba(0,20,45,0.55) 100%)";
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(0,170,255,0.28)";
+                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,170,255,0)";
+              }}
+            >
+              <span style={{
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "linear-gradient(180deg, #7DD3FC 0%, #00AAFF 50%, #0070CC 100%)",
+                border: "1px solid rgba(255,255,255,0.25)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(0,170,255,0.55)",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M9 18V5l12-2v13" stroke="#00162e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="6" cy="18" r="3" stroke="#00162e" strokeWidth="1.8"/>
+                  <circle cx="18" cy="16" r="3" stroke="#00162e" strokeWidth="1.8"/>
+                </svg>
+              </span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
+                  Upload audio
+                </span>
+                <span style={{ fontSize: 9, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                  MP4 · MP3 · M4A · WAV · OGG
+                </span>
+              </span>
+            </button>
+
+            {/* Video upload button — non-MP4 video formats */}
             <button onClick={() => (document.getElementById("video-upload-input") as HTMLInputElement)?.click()}
               style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
                 border:     "1px solid rgba(255,120,0,0.28)",
                 background:
                   "linear-gradient(180deg, " +
@@ -767,8 +928,8 @@ export function CreationsRoom({
                     "rgba(40,18,8,0.55) 100%" +
                   ")",
                 color:      "rgba(255,220,180,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 textAlign:  "left",
                 boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(255,120,0,0)",
               }}
@@ -786,23 +947,23 @@ export function CreationsRoom({
               }}
             >
               <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(180deg, #FCA47D 0%, #FF7800 50%, #C24E00 100%)",
                 border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(255,120,0,0.55)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(255,120,0,0.55)",
               }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <rect x="2" y="5" width="14" height="14" rx="2" stroke="#1a0800" strokeWidth="1.8"/>
                   <path d="M16 9l6-3v12l-6-3V9z" fill="#1a0800"/>
                 </svg>
               </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
                   Upload video
                 </span>
-                <span style={{ fontSize: 10, color: "rgba(252,164,125,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
-                  MP4 · MOV · WEBM · AVI · MKV
+                <span style={{ fontSize: 9, color: "rgba(252,164,125,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                  MOV · WEBM · AVI · MKV
                 </span>
               </span>
             </button>
@@ -815,7 +976,7 @@ export function CreationsRoom({
               onChange={handleFileUpload}/>
             <button onClick={() => (document.getElementById("doc-upload-input") as HTMLInputElement)?.click()}
               style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
                 border:     "1px solid rgba(0,212,255,0.28)",
                 background:
                   "linear-gradient(180deg, " +
@@ -824,8 +985,8 @@ export function CreationsRoom({
                     "rgba(14,28,56,0.55) 100%" +
                   ")",
                 color:      "rgba(232,244,255,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 textAlign:  "left",
                 boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,212,255,0)",
               }}
@@ -843,19 +1004,19 @@ export function CreationsRoom({
               }}
             >
               <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(180deg, #7DD3FC 0%, #00D4FF 50%, #0284C7 100%)",
                 border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(0,212,255,0.55)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(0,212,255,0.55)",
               }}>
-                <FileText size={20} style={{ color: "#031024" }} />
+                <FileText size={16} style={{ color: "#031024" }} />
               </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
                   Upload worksheet
                 </span>
-                <span style={{ fontSize: 10, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 9, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
                   PDF · DOC · DOCX
                 </span>
               </span>
@@ -1184,20 +1345,12 @@ export function CreationsRoom({
         )}
       </div>
 
-      {/* ── Objective card — absolute overlay so it never affects the flex layout ── */}
-      {objectiveId && (
-        <div className="hidden lg:block" style={{
-          position: "absolute",
-          left: "37%", top: "9%", right: "5%",
-          padding: "8px 12px 0",
-          zIndex: 25,
-          pointerEvents: "auto",
-        }}>
-          <ObjectiveCard objectiveId={objectiveId} arenaAccent={arenaAccent} arenaAccentGlow={arenaAccentGlow} />
-        </div>
-      )}
-
       {/* ── Desktop chat panel — overlaid on the large blue screen ───────── */}
+      {/* NOTE: ObjectiveCard is rendered INSIDE this panel (not as a sibling)
+          so that the upload popup's zIndex:50 (scoped to this stacking context)
+          correctly covers the card. When ObjectiveCard was a sibling at zIndex:25
+          it lived in the ROOT stacking context and always rendered above the popup
+          (which was scoped inside zIndex:20). */}
       <div className="hidden lg:flex flex-col"
         style={{
           position: "absolute",
@@ -1206,6 +1359,19 @@ export function CreationsRoom({
           background: "transparent",
         }}
       >
+        {/* ObjectiveCard — absolutely pinned to the top of the chat panel.
+            zIndex:1 here keeps it above the message list scroll container but
+            below the upload popup (zIndex:50) within this same stacking context. */}
+        {objectiveId && (
+          <div style={{
+            position: "absolute", top: 0, left: 0, right: 0,
+            padding: "8px 12px 0",
+            zIndex: 1,
+            pointerEvents: "auto",
+          }}>
+            <ObjectiveCard objectiveId={objectiveId} arenaAccent={arenaAccent} arenaAccentGlow={arenaAccentGlow} />
+          </div>
+        )}
         {renderMessageList(scrollRefDesktop, objectiveId ? "68px" : "12px")}
         <div style={{ padding: "8px 12px 12px", flexShrink: 0 }}>
           {/* Output-type dot row */}

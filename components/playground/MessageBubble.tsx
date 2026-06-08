@@ -499,71 +499,184 @@ export function MessageBubble({
 
           {/* Plain text */}
           {!isEmpty && !isLoading && !isImage && !audioData && !slideData && !videoData && !(isJson && !isUser) && (
-            isUser ? (
-              <div>
-                <p className="whitespace-pre-wrap">{message.content}</p>
-                {message.attachmentMeta && message.attachmentMeta.length > 0 && (() => {
-                  // Split into injected-image entries (img:url) and plain type badges
-                  const imgEntries  = message.attachmentMeta.filter(m => m.startsWith("img:"));
-                  const badgeEntries = message.attachmentMeta.filter(m => !m.startsWith("img:"));
-                  return (
-                    <div className="mt-2 flex flex-col gap-1.5">
-                      {/* Injected image thumbnails */}
-                      {imgEntries.length > 0 && (
-                        <div className="flex gap-2 flex-wrap">
-                          {imgEntries.map((item, i) => {
-                            const url = item.slice(4); // strip "img:"
-                            return (
-                              <div key={i} className="relative rounded-lg overflow-hidden flex-shrink-0"
-                                style={{ width: 72, height: 52, border: "1.5px solid rgba(255,255,255,0.25)" }}>
-                                <img src={url} alt="injected" draggable={false}
-                                  style={{ width: "100%", height: "100%", objectFit: "cover" }} />
-                                <div className="absolute bottom-0 left-0 right-0 px-1 py-0.5 text-center"
-                                  style={{ background: "rgba(0,0,0,0.55)", fontSize: 7, fontWeight: 700, color: "rgba(255,255,255,0.8)" }}>
-                                  image
+            isUser ? (() => {
+                // ── Collect image, doc, audio, video URLs from attachmentMeta + content ──
+                // attachmentMeta is the fast path (new messages); content scan is the
+                // backward-compat path for messages saved before this rendering fix.
+                const imgUrls: string[]   = [];
+                const docUrls: string[]   = [];
+                const audioUrls: string[] = [];
+                const videoUrls: string[] = [];
+                if (Array.isArray(message.attachmentMeta)) {
+                  for (const tag of message.attachmentMeta) {
+                    if (typeof tag === "string" && tag.startsWith("img:"))
+                      imgUrls.push(tag.slice(4));
+                    else if (typeof tag === "string" && tag.startsWith("docx:"))
+                      docUrls.push(tag.slice(5));
+                    else if (typeof tag === "string" && tag.startsWith("audio:"))
+                      audioUrls.push(tag.slice(6));
+                    else if (typeof tag === "string" && tag.startsWith("video:"))
+                      videoUrls.push(tag.slice(6));
+                  }
+                }
+                // Also parse raw markers from content (backward-compat for old messages).
+                const IMG_RE   = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+                const DOC_RE   = /\[Document titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+                const AUDIO_RE = /\[Audio titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+                const VIDEO_RE = /\[Video titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+                let rm: RegExpExecArray | null;
+                while ((rm = IMG_RE.exec(message.content))   !== null)
+                  if (!imgUrls.includes(rm[1]))   imgUrls.push(rm[1]);
+                while ((rm = DOC_RE.exec(message.content))   !== null)
+                  if (!docUrls.includes(rm[1]))   docUrls.push(rm[1]);
+                while ((rm = AUDIO_RE.exec(message.content)) !== null)
+                  if (!audioUrls.includes(rm[1])) audioUrls.push(rm[1]);
+                while ((rm = VIDEO_RE.exec(message.content)) !== null)
+                  if (!videoUrls.includes(rm[1])) videoUrls.push(rm[1]);
+
+                // Strip all markers from content so they don't appear as raw text.
+                const cleanText = message.content
+                  .replace(/\[Image titled "[^"]*":\s*https?:\/\/[^\s\]]+\s*\]/g, "")
+                  .replace(/\[Document titled "[^"]*":\s*https?:\/\/[^\s\]]+\s*\]/g, "")
+                  .replace(/\[Audio titled "[^"]*":\s*https?:\/\/[^\s\]]+\s*\]/g, "")
+                  .replace(/\[Video titled "[^"]*":\s*https?:\/\/[^\s\]]+\s*\]/g, "")
+                  .trim();
+
+                // Derive a human-readable filename from a Supabase URL.
+                // Supabase adds a timestamp prefix (e.g. "1780758257950_ChatGPT.png");
+                // strip it so the label shows "ChatGPT.png".
+                const labelFromUrl = (url: string) => {
+                  const raw = url.split("/").pop() ?? "";
+                  return raw.replace(/^\d+_/, "") || raw;
+                };
+
+                // Plain-type badge entries — exclude all typed-URL entries.
+                const badgeEntries = (message.attachmentMeta ?? []).filter(
+                  t => typeof t === "string"
+                    && !t.startsWith("img:")
+                    && !t.startsWith("docx:")
+                    && !t.startsWith("audio:")
+                    && !t.startsWith("video:")
+                );
+
+                // Shared chip container style for doc / audio / video
+                const fileChipStyle: React.CSSProperties = {
+                  background: "rgba(255,255,255,0.15)",
+                  border: "1px solid rgba(255,255,255,0.22)",
+                };
+
+                return (
+                  <div>
+                    {/* ── Image + doc + audio + video chips — rendered ABOVE the typed text ── */}
+                    {(imgUrls.length > 0 || docUrls.length > 0 || audioUrls.length > 0 || videoUrls.length > 0) && (
+                      <div className="mb-2 flex flex-wrap gap-2">
+                        {imgUrls.map((url, i) => (
+                          <div key={`img-${i}`} className="flex flex-col items-center gap-0.5 flex-shrink-0">
+                            <div className="rounded-lg overflow-hidden"
+                              style={{ width: 72, height: 52, border: "1.5px solid rgba(255,255,255,0.25)" }}>
+                              <img src={url} alt={labelFromUrl(url)} draggable={false}
+                                style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+                            </div>
+                            <span style={{
+                              fontSize: 8, fontWeight: 600, color: "rgba(255,255,255,0.75)",
+                              maxWidth: 72, overflow: "hidden", textOverflow: "ellipsis",
+                              whiteSpace: "nowrap", lineHeight: 1.2,
+                            }}>
+                              {labelFromUrl(url)}
+                            </span>
+                          </div>
+                        ))}
+                        {docUrls.map((url, i) => (
+                          <div key={`doc-${i}`} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg flex-shrink-0"
+                            style={fileChipStyle}>
+                            <svg width="11" height="13" viewBox="0 0 11 13" fill="none" style={{ flexShrink: 0 }}>
+                              <path d="M7 1H2a1 1 0 00-1 1v9a1 1 0 001 1h7a1 1 0 001-1V4L7 1z"
+                                stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                              <path d="M7 1v3h3" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round"/>
+                              <line x1="3" y1="7" x2="8" y2="7" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                              <line x1="3" y1="9" x2="6.5" y2="9" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                            </svg>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, color: userTextColor,
+                              maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}>
+                              {labelFromUrl(url)}
+                            </span>
+                          </div>
+                        ))}
+                        {audioUrls.map((url, i) => (
+                          <div key={`audio-${i}`} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg flex-shrink-0"
+                            style={fileChipStyle}>
+                            {/* Speaker / waveform icon */}
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                              <path d="M2 4.5H4L6.5 2v8L4 7.5H2a.5.5 0 01-.5-.5v-2A.5.5 0 012 4.5z"
+                                stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
+                              <path d="M8 4a2.5 2.5 0 010 4" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
+                            </svg>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, color: userTextColor,
+                              maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}>
+                              {labelFromUrl(url)}
+                            </span>
+                          </div>
+                        ))}
+                        {videoUrls.map((url, i) => (
+                          <div key={`video-${i}`} className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg flex-shrink-0"
+                            style={fileChipStyle}>
+                            {/* Film / clapperboard icon */}
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" style={{ flexShrink: 0 }}>
+                              <rect x="1" y="2.5" width="10" height="7" rx="1"
+                                stroke="currentColor" strokeWidth="1"/>
+                              <path d="M4.5 5l3 1.5-3 1.5V5z" fill="currentColor"/>
+                            </svg>
+                            <span style={{
+                              fontSize: 9, fontWeight: 600, color: userTextColor,
+                              maxWidth: 100, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                            }}>
+                              {labelFromUrl(url)}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* ── User's typed text ── */}
+                    {cleanText && <p className="whitespace-pre-wrap">{cleanText}</p>}
+                    {/* ── Plain type badges (audio/pdf/file attached) ── */}
+                    {badgeEntries.length > 0 && (
+                      <div className="mt-2 flex gap-1 flex-wrap">
+                        {badgeEntries.map((item, i) => {
+                          const isFileType = ["image","audio","pdf","file"].includes(item);
+                          return (
+                            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold"
+                              style={{ background: "rgba(255,255,255,0.18)", color: userTextColor }}>
+                              {item === "image" ? (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                  <rect x=".5" y=".5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1"/>
+                                  <circle cx="3" cy="3.5" r="1" fill="currentColor"/>
+                                  <path d="M.5 7l2.5-2.5 2 2 1.5-1.5L9.5 7" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
+                                </svg>
+                              ) : item === "audio" ? (
+                                <div className="flex items-end gap-[1.5px]">
+                                  {[2,3,2,4,2,3,2].map((h, j) => (
+                                    <div key={j} className="w-[1.5px] rounded-full" style={{ height: `${h}px`, background: userTextColor }}/>
+                                  ))}
                                 </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                      {/* Plain type badges */}
-                      {badgeEntries.length > 0 && (
-                        <div className="flex gap-1 flex-wrap">
-                          {badgeEntries.map((item, i) => {
-                            const isFileType = ["image","audio","pdf","file"].includes(item);
-                            return (
-                              <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold"
-                                style={{ background: "rgba(255,255,255,0.18)", color: userTextColor }}>
-                                {item === "image" ? (
-                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                    <rect x=".5" y=".5" width="9" height="9" rx="1" stroke="currentColor" strokeWidth="1"/>
-                                    <circle cx="3" cy="3.5" r="1" fill="currentColor"/>
-                                    <path d="M.5 7l2.5-2.5 2 2 1.5-1.5L9.5 7" stroke="currentColor" strokeWidth="1" strokeLinejoin="round"/>
-                                  </svg>
-                                ) : item === "audio" ? (
-                                  <div className="flex items-end gap-[1.5px]">
-                                    {[2,3,2,4,2,3,2].map((h, j) => (
-                                      <div key={j} className="w-[1.5px] rounded-full" style={{ height: `${h}px`, background: userTextColor }}/>
-                                    ))}
-                                  </div>
-                                ) : (
-                                  <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
-                                    <path d="M6 1H2.5a1 1 0 00-1 1v6a1 1 0 001 1h5a1 1 0 001-1V3.5L6 1z" stroke="currentColor" strokeWidth="1"/>
-                                    <path d="M6 1v2.5h2.5" stroke="currentColor" strokeWidth="1"/>
-                                  </svg>
-                                )}
-                                {isFileType ? `${item} attached` : item}
-                              </span>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-            ) : (
+                              ) : (
+                                <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
+                                  <path d="M6 1H2.5a1 1 0 00-1 1v6a1 1 0 001 1h5a1 1 0 001-1V3.5L6 1z" stroke="currentColor" strokeWidth="1"/>
+                                  <path d="M6 1v2.5h2.5" stroke="currentColor" strokeWidth="1"/>
+                                </svg>
+                              )}
+                              {isFileType ? `${item} attached` : item}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+            })() : (
               <div className="select-text cursor-text">
               <ReactMarkdown components={{
                 p:      ({ children }) => <p className="mb-2 last:mb-0 text-white/95">{children}</p>,

@@ -11,17 +11,18 @@ import { isObjectiveEnabled, type Objective } from "@/lib/objectives";
  *   Left  column (01–05) : x  3 – 19 %
  *   Right column (06–10) : x 80 – 96 %
  *
- *   5 rows, each ~13 % tall, starting at 8 %:
- *     tops at 8 / 21 / 34 / 47 / 60 %
- *
- *   Positions are % of image height (object-fit:fill → same as container %).
+ *   Left rows are evenly spaced. Right column rows 3-5 sit higher in the image
+ *   due to perspective compression on the right wall.
+ *   LEFT_ROWS  tops at 8 / 21 / 34 / 47 / 60 %
+ *   RIGHT_ROWS tops at 8 / 21 / 26 / 38 / 50 %
  */
-const LEFT_X  = 3;
-const LEFT_W  = 16;
-const RIGHT_X = 80;
-const RIGHT_W = 16;
-const CARD_H  = 13;
-const ROWS    = [8, 21, 34, 47, 60];
+const LEFT_X     = 6;
+const LEFT_W     = 13;
+const RIGHT_X    = 80;
+const RIGHT_W    = 13;
+const CARD_H     = 13;
+const LEFT_ROWS  = [8, 21, 34, 47, 60];
+const RIGHT_ROWS = [8, 26, 38, 50, 62];
 
 const ACCENT: Record<string, string> = {
   text:   "#C4B5FD",
@@ -46,8 +47,8 @@ export default function Arena1HotspotMap({ objectives, completed, onObjectiveCli
     <div className="absolute inset-0 w-full h-full" style={{ pointerEvents: "none" }}>
       {objectives.map((obj) => {
         const rowIdx = obj.order <= 5 ? obj.order - 1 : obj.order - 6;
-        const top    = ROWS[rowIdx];
         const isLeft = obj.order <= 5;
+        const top    = (isLeft ? LEFT_ROWS : RIGHT_ROWS)[rowIdx];
         const left   = isLeft ? LEFT_X  : RIGHT_X;
         const cardW  = isLeft ? LEFT_W  : RIGHT_W;
 
@@ -61,9 +62,7 @@ export default function Arena1HotspotMap({ objectives, completed, onObjectiveCli
         return (
           <div
             key={obj.id}
-            onMouseEnter={() => { setHoveredId(obj.id); onObjectiveHover?.(obj); }}
             onMouseLeave={() => { setHoveredId(null); onObjectiveHover?.(null); }}
-            onClick={() => onObjectiveSelect?.(obj)}
             style={{
               position:      "absolute",
               left:          `${left}%`,
@@ -72,9 +71,23 @@ export default function Arena1HotspotMap({ objectives, completed, onObjectiveCli
               height:        `${CARD_H}%`,
               zIndex:        isOpen ? 100 : 20,
               pointerEvents: "auto",
-              cursor:        "pointer",
+              cursor:        "default",
             }}
           >
+            {/* Trigger strip — skip decorative top border (0-20%), land on number + title text (20-60%) */}
+            <div
+              onMouseEnter={() => { setHoveredId(obj.id); onObjectiveHover?.(obj); }}
+              onClick={() => onObjectiveSelect?.(obj)}
+              style={{
+                position:      "absolute",
+                left:          0,
+                right:         0,
+                top:           "20%",
+                height:        "40%",
+                pointerEvents: "auto",
+                cursor:        "pointer",
+              }}
+            />
             <AnimatePresence>
               {isOpen && (
                 <motion.div

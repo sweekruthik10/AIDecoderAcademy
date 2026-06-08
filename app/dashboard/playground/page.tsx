@@ -204,20 +204,39 @@ function PlaygroundInner() {
     if (!text.trim() || isStreaming) return;
     setOutputType(outType);
 
-    // If the text starts with a creation context marker ([Type titled "...": ...]\n\n),
-    // split it out so the user bubble shows only their clean message.
-    const nnIdx         = text.indexOf("\n\n");
-    const contextPart   = nnIdx > -1 ? text.slice(0, nnIdx) : "";
-    const isCtxMarker   = contextPart.startsWith("[") && contextPart.endsWith("]");
-    const userText      = isCtxMarker ? text.slice(nnIdx + 2) : text;
-    const displayText   = isCtxMarker ? userText : undefined;
+    // Parse ALL leading context marker blocks (one per \n\n-delimited segment).
+    // Each block looks like [Type titled "X": URL]. We extract every URL into
+    // allBubbleMeta so MessageBubble can render chips for all of them, and set
+    // cleanDisplay to just the user's typed text so no raw markers appear in the bubble.
+    const textBlocks   = text.split("\n\n");
+    const ctxBlocks: string[] = [];
+    let ctxCount = 0;
+    for (const block of textBlocks) {
+      const t = block.trim();
+      if (t.startsWith("[") && t.endsWith("]")) { ctxBlocks.push(t); ctxCount++; }
+      else break;
+    }
+    const isCtxMarker = ctxCount > 0;
+    const userText    = isCtxMarker ? textBlocks.slice(ctxCount).join("\n\n") : text;
+    const displayText = isCtxMarker ? userText : undefined;
 
-    // If an image creation was injected, extract its URL for thumbnail display in the bubble.
-    const imgUrlMatch   = isCtxMarker
-      ? contextPart.match(/^\[Image titled "[^"]+": (https?:\/\/\S+)\]$/)
-      : null;
-    const injectedImgUrl = imgUrlMatch ? imgUrlMatch[1] : null;
-    const imgBubbleMeta  = injectedImgUrl ? [`img:${injectedImgUrl}`] : [];
+    // Build allBubbleMeta from every context block:
+    //   "img:URL"   → TeacherCharacter (wantsImages) + MessageBubble thumbnail chip
+    //   "docx:URL"  → TeacherCharacter (wantsDocs)   + MessageBubble file chip
+    //   "audio:URL" → TeacherCharacter (wantsAudio)  + MessageBubble audio chip
+    //   "video:URL" → TeacherCharacter (wantsVideo)  + MessageBubble video chip
+    // Only https:// URLs are stored; data-URLs (upload not yet complete) are skipped.
+    const allBubbleMeta: string[] = [];
+    for (const block of ctxBlocks) {
+      const imgM = block.match(/^\[Image titled "[^"]+": (https?:\/\/\S+)\]$/);
+      if (imgM) { allBubbleMeta.push(`img:${imgM[1]}`); continue; }
+      const docM = block.match(/^\[Document titled "[^"]+": (https?:\/\/\S+)\]$/);
+      if (docM) { allBubbleMeta.push(`docx:${docM[1]}`); continue; }
+      const audioM = block.match(/^\[Audio titled "[^"]+": (https?:\/\/\S+)\]$/);
+      if (audioM) { allBubbleMeta.push(`audio:${audioM[1]}`); continue; }
+      const videoM = block.match(/^\[Video titled "[^"]+": (https?:\/\/\S+)\]$/);
+      if (videoM) { allBubbleMeta.push(`video:${videoM[1]}`); continue; }
+    }
 
     // Skip auto-inject when user explicitly dragged a creation into the prompt —
     // that would prepend a second [Image...] marker and extractImageUrl in the API
@@ -231,21 +250,20 @@ function PlaygroundInner() {
     const cleanDisplay = displayText ?? (hasContext ? userText : undefined);
 
     if (outType === "image") {
-      await sendImage(enrichedText, cleanDisplay, imgBubbleMeta);
+      await sendImage(enrichedText, cleanDisplay, allBubbleMeta);
       awardXP("generate_image").then(handleXpResult);
     } else if (outType === "audio") {
-      // Pass imgBubbleMeta so injected image thumbnail still shows in the bubble
-      await sendAudio(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, imgBubbleMeta);
+      await sendAudio(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, allBubbleMeta);
       awardXP("generate_audio").then(handleXpResult);
     } else if (outType === "slides") {
-      await sendSlides(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, imgBubbleMeta);
+      await sendSlides(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, allBubbleMeta);
       awardXP("generate_slides").then(handleXpResult);
     } else if (outType === "video") {
-      await sendVideo(enrichedText, cleanDisplay, imgBubbleMeta, 20);
+      await sendVideo(enrichedText, cleanDisplay, allBubbleMeta, 20);
       awardXP("generate_video").then(handleXpResult);
     } else {
       // Pass displayPrompt (6th arg) so the bubble shows the clean text, not the context marker
-      await sendMessage(enrichedText, outType, [], undefined, imgBubbleMeta.length ? imgBubbleMeta : undefined, cleanDisplay);
+      await sendMessage(enrichedText, outType, [], undefined, allBubbleMeta.length ? allBubbleMeta : undefined, cleanDisplay);
       awardXP("generate_text").then(handleXpResult);
     }
   };
@@ -290,6 +308,61 @@ function PlaygroundInner() {
     const key = `aida:worksheet:${worksheetSchema.lmsId}:${profile.id}:draft`;
     setHasDraft(!!localStorage.getItem(key));
   }, [worksheetSchema, profile?.id, worksheetOpen]);
+
+  // Also set hasDraft immediately when auto-parse writes data (DOCX upload path).
+  // The effect above won't re-run after the parse because its deps don't change.
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    function onParsed(e: Event) {
+      const { detail } = e as CustomEvent<{ lmsId: string; profileId: string }>;
+      if (!worksheetSchema || detail.lmsId !== worksheetSchema.lmsId) return;
+      if (detail.profileId !== profile?.id) return;
+      setHasDraft(true);
+    }
+    window.addEventListener("aida:worksheet-parsed", onParsed);
+    return () => window.removeEventListener("aida:worksheet-parsed", onParsed);
+  }, [worksheetSchema, profile?.id]);
+
+  // Pre-fetch worksheet draft from server on mount — hydrates localStorage so
+  // the icon dot appears immediately and the popup opens with previous answers.
+  useEffect(() => {
+    if (!worksheetSchema || !profile?.id) return;
+    const lmsId = worksheetSchema.lmsId;
+    const profileId = profile.id;
+    fetch(`/api/worksheet-drafts?lmsId=${lmsId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((res: { draft: { data: Record<string,unknown>; notes?: string; worksheet_file_url?: string; worksheet_file_name?: string; worksheet_file_format?: string; updated_at?: string } | null } | null) => {
+        if (!res?.draft?.data) return;
+        const hasContent = Object.values(res.draft.data).some(v =>
+          typeof v === "string" ? (v as string).trim().length > 0 : v === true,
+        );
+        if (!hasContent) return;
+        // Only hydrate if localStorage is empty or server data is newer.
+        const localKey = `aida:worksheet:${lmsId}:${profileId}:draft`;
+        const existing = typeof window !== "undefined" ? localStorage.getItem(localKey) : null;
+        let shouldWrite = !existing;
+        if (existing && res.draft.updated_at) {
+          try {
+            const local = JSON.parse(existing) as { updated_at?: string };
+            const localTime  = local.updated_at ? new Date(local.updated_at).getTime() : 0;
+            const serverTime = new Date(res.draft.updated_at).getTime();
+            shouldWrite = serverTime > localTime;
+          } catch { shouldWrite = false; }
+        }
+        if (shouldWrite && typeof window !== "undefined") {
+          localStorage.setItem(localKey, JSON.stringify({
+            data:          res.draft.data,
+            notes:         res.draft.notes ?? "",
+            worksheetFile: res.draft.worksheet_file_url
+              ? { url: res.draft.worksheet_file_url, filename: res.draft.worksheet_file_name ?? "", format: res.draft.worksheet_file_format ?? "docx" }
+              : undefined,
+            updated_at: res.draft.updated_at,
+          }));
+        }
+        setHasDraft(true);
+      })
+      .catch(() => {});
+  }, [worksheetSchema?.lmsId, profile?.id]);
 
   // Loading state
   if (!profile) return (

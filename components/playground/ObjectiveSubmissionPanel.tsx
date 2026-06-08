@@ -365,7 +365,7 @@ function pickReadyLine(ctx: ReadyContext): string {
   }
   if (hasFile && !mediaCount) {
     return isObj6
-      ? "Worksheet's in. Now I just need the video."
+      ? "Worksheet's in. Now I just need the avatar image."
       : "Worksheet's in. Where's the comic?";
   }
   if (!hasWorksheet && mediaCount > 0) {
@@ -475,6 +475,9 @@ export function ObjectiveSubmissionPanel({
   const whiteboardDocsRef   = useRef(whiteboardDocs);
   const whiteboardVideosRef = useRef(whiteboardVideos);
   const whiteboardAudiosRef = useRef(whiteboardAudios);
+  // Tracks which doc URLs we already attempted to auto-parse this session so
+  // we don't re-fire on every render that sees the same whiteboardDocs list.
+  const parsedDocUrlsRef    = useRef(new Set<string>());
   const { setLast: publishValidator } = useValidatorWriter();
 
   // ── Speak helpers ────────────────────────────────────────────────────────
@@ -548,6 +551,78 @@ export function ObjectiveSubmissionPanel({
     whiteboardAudiosRef.current = whiteboardAudios;
   }, [whiteboardImages, whiteboardDocs, whiteboardVideos, whiteboardAudios]);
 
+  // Auto-parse: when the student drops a DOCX in the whiteboard chat, extract
+  // its field values and write them to the worksheet localStorage draft so:
+  //   1. The WorksheetPopup form shows the pre-filled answers on next open.
+  //   2. The validator uses the reliable inline-form path instead of the
+  //      fragile server-side file-extraction path.
+  // We only run this when there is no substantial form data already — we never
+  // overwrite work the student already typed into the popup.
+  useEffect(() => {
+    if (whiteboardDocs.length === 0 || !profile?.id) return;
+
+    const latest    = whiteboardDocs[whiteboardDocs.length - 1];
+    const lmsId     = rubric.lmsId;
+    const profileId = profile.id;
+
+    // Skip if we already attempted this URL in this session.
+    if (parsedDocUrlsRef.current.has(latest.url)) return;
+
+    // Skip DOCX formats we can't reliably extract (only docx supported for now).
+    if (latest.format !== "docx") return;
+
+    // Skip if there is already substantial typed form data — don't overwrite it.
+    const existing = readPending(lmsId, profileId);
+    const filledCount = existing?.data
+      ? Object.values(existing.data).filter(v =>
+          typeof v === "string" ? v.trim().length > 0 : v === true,
+        ).length
+      : 0;
+    if (filledCount > 2) return;
+
+    parsedDocUrlsRef.current.add(latest.url);
+
+    fetch("/api/aida/parse-worksheet", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ url: latest.url, format: latest.format, lmsId }),
+    })
+      .then(r => r.ok ? (r.json() as Promise<{ data: Record<string, string | boolean> }>) : null)
+      .then(result => {
+        if (!result?.data) return;
+        // Require at least a few non-empty fields — extraction failures return mostly empty objects.
+        const filledFields = Object.values(result.data).filter(v =>
+          typeof v === "string" ? v.trim().length > 0 : v === true,
+        ).length;
+        if (filledFields < 2) return;
+
+        const draftKey = `aida:worksheet:${lmsId}:${profileId}:draft`;
+        try {
+          localStorage.setItem(draftKey, JSON.stringify({
+            data:          result.data,
+            worksheetFile: { url: latest.url, format: latest.format, filename: latest.filename },
+            updated_at:    new Date().toISOString(),
+          }));
+        } catch { return; /* localStorage quota — non-fatal */ }
+
+        // Notify the WorksheetPopup in case it is currently open — it will
+        // update its form state immediately without requiring a close/reopen.
+        window.dispatchEvent(new CustomEvent("aida:worksheet-parsed", {
+          detail: {
+            lmsId,
+            profileId,
+            data:          result.data,
+            worksheetFile: { url: latest.url, format: latest.format, filename: latest.filename },
+          },
+        }));
+
+        // Refresh pending so ReadyView shows the correct worksheet status.
+        setPending(readPending(lmsId, profileId));
+      })
+      .catch(() => { /* non-fatal — leave pending as-is */ });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whiteboardDocs.length, rubric.lmsId, profile?.id]);
+
   // ── Greet on open. First open of the session = intro (3-beat reveal).
   //     Subsequent opens = ready, with a context-aware notice line. ─────────
   useEffect(() => {
@@ -579,8 +654,7 @@ export function ObjectiveSubmissionPanel({
       setPhase("ready");
       // Media now comes from chat — count whichever kind the objective needs.
       const isAudioObj = rubric.lmsId === "l1-05" || rubric.lmsId === "l1-08";
-      const chatMediaCount = isObj6 ? whiteboardVideos.length
-        : isAudioObj ? whiteboardAudios.length
+      const chatMediaCount = isAudioObj ? whiteboardAudios.length
         : whiteboardImages.length;
       const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
       const ctx: ReadyContext = {
@@ -635,8 +709,14 @@ export function ObjectiveSubmissionPanel({
   // ── Validate ─────────────────────────────────────────────────────────────
   function buildWorksheetPayload(p: PendingPayload | null): WorksheetUpload | null {
     if (!p) return null;
-    // File upload wins over inline form when both are present (kid uploaded
-    // their hand-filled .docx — trust that over a partial inline form).
+    // Inline form data always wins when present — this covers both manual typing
+    // and the auto-parse flow where a chat DOCX is extracted into p.data.
+    // Using the data directly is more reliable than re-extracting the file server-side.
+    if (p.data && Object.keys(p.data).length > 0) {
+      return { kind: "inline-form", data: p.data, lmsId: p.lmsId };
+    }
+    // No form data → fall back to the raw file reference so the validator can
+    // attempt server-side extraction (last-resort path).
     if (p.worksheetFile) {
       return {
         kind:     "file",
@@ -645,15 +725,11 @@ export function ObjectiveSubmissionPanel({
         filename: p.worksheetFile.filename,
       };
     }
-    if (p.data && Object.keys(p.data).length > 0) {
-      return { kind: "inline-form", data: p.data, lmsId: p.lmsId };
-    }
     return null;
   }
 
   async function handleValidate() {
     setError(null);
-
     // Read from refs so we always get the latest whiteboard media, even if this
     // function was created during an earlier render with a stale snapshot.
     const fresh = readPending(rubric.lmsId, profile?.id) ?? pending;
@@ -905,6 +981,26 @@ export function ObjectiveSubmissionPanel({
       validateAbortRef.current = null;
       setResult(final);
       setPhase("result");
+
+      // Save worksheet to server when validation completes (pass or fail) so
+      // the student's answers persist across sessions.
+      const savedData = fresh?.data ?? {};
+      if (Object.values(savedData).some(v =>
+        typeof v === "string" ? v.trim().length > 0 : v === true,
+      )) {
+        fetch("/api/worksheet-drafts", {
+          method:  "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lmsId:               rubric.lmsId,
+            data:                savedData,
+            notes:               fresh?.notes              ?? null,
+            worksheetFileUrl:    fresh?.worksheetFile?.url     ?? null,
+            worksheetFileName:   fresh?.worksheetFile?.filename ?? null,
+            worksheetFileFormat: fresh?.worksheetFile?.format   ?? null,
+          }),
+        }).catch(() => {}); // non-fatal
+      }
       // Punchy opener (random per tier) → tiny pause → core rubric script.
       // Lands like a coach reacting, then explaining.
       const opener = pickCelebrationOpener(final.tier);
@@ -993,8 +1089,7 @@ export function ObjectiveSubmissionPanel({
     const fresh = readPending(rubric.lmsId, profile?.id);
     setPending(fresh);
     const isAudioObj = rubric.lmsId === "l1-05" || rubric.lmsId === "l1-08";
-    const chatMediaCount = isObj6 ? whiteboardVideos.length
-      : isAudioObj ? whiteboardAudios.length
+    const chatMediaCount = isAudioObj ? whiteboardAudios.length
       : whiteboardImages.length;
     const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
     const ctx: ReadyContext = {
@@ -1246,19 +1341,19 @@ function ReadyView({
   const mediaCount  = pending?.mediaUrls?.length ?? 0;
 
   const isAudioObj = isObj5 || isObj8;
-  const usingWhiteboardFallback = !isObj6 && !isAudioObj && mediaCount === 0 && whiteboardImageCount > 0;
+  const usingWhiteboardFallback = !isAudioObj && mediaCount === 0 && whiteboardImageCount > 0;
   const usingWhiteboardAudio    = isAudioObj && mediaCount === 0 && whiteboardAudioCount > 0;
 
   const mediaLabel = isObj6 ? "Avatar image"
-    : isAudioObj  ? (isObj8 ? "Audio clips (3)" : "Audio track")
+    : isAudioObj ? (isObj8 ? "Audio clips (3)" : "Audio track")
     : "Output image";
 
   const mediaOk = mediaCount > 0 || usingWhiteboardFallback || usingWhiteboardAudio;
   const mediaDetail = (() => {
     if (mediaCount > 0) return `${mediaCount} uploaded`;
-    if (usingWhiteboardFallback) return "Will use most recent whiteboard image";
+    if (usingWhiteboardFallback) return isObj6 ? "Will use most recent avatar from chat" : "Will use most recent whiteboard image";
     if (usingWhiteboardAudio)    return isObj8 ? `${whiteboardAudioCount} audio clip(s) in chat` : "Will use most recent audio";
-    if (isObj6)   return "Generate your avatar in the whiteboard";
+    if (isObj6)   return "Generate your avatar image in the whiteboard or upload a photo";
     if (isAudioObj) return "Generate audio in the whiteboard or drop files in chat";
     return "Generate the output in the whiteboard";
   })();
