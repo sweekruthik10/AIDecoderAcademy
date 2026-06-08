@@ -117,7 +117,7 @@ function allRequiredFilled(schema: WorksheetSchema, data: Record<string, string 
   // Reflection is post-create; not gating on submit.
   return schema.sections
     .filter(s => s.id !== "reflection")
-    .every(s => s.fields.every(f => isFieldFilled(f, data[f.id])));
+    .every(s => s.fields.every(f => f.optional || isFieldFilled(f, data[f.id])));
 }
 
 // All in-popup uploads removed — comic images (OBJ 10) and avatar videos
@@ -182,6 +182,28 @@ export function WorksheetPopup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, lmsId, profileId]);
 
+  // Live update: ObjectiveSubmissionPanel fires this event after auto-parsing
+  // a DOCX the student dropped in chat. If the popup is already open, update
+  // the form fields immediately so the student sees their answers pre-filled
+  // without needing to close and reopen.
+  useEffect(() => {
+    if (!schema) return;
+    function onParsed(e: Event) {
+      const { detail } = e as CustomEvent<{
+        lmsId:         string;
+        profileId:     string;
+        data:          Record<string, string | boolean>;
+        worksheetFile: { url: string; format: "pdf" | "docx"; filename: string };
+      }>;
+      if (detail.lmsId !== lmsId || detail.profileId !== profileId) return;
+      setData(detail.data);
+      writer.setDraft(lmsId, detail.data);
+    }
+    window.addEventListener("aida:worksheet-parsed", onParsed);
+    return () => window.removeEventListener("aida:worksheet-parsed", onParsed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, lmsId, profileId]);
+
   // Esc closes
   useEffect(() => {
     if (!open) return;
@@ -192,6 +214,7 @@ export function WorksheetPopup({
 
   // Single source of truth for "save the draft now" — used by every change
   // handler so the kid never loses anything they typed/uploaded.
+  // Also syncs to the server (fire-and-forget) so data persists across sessions.
   function persist(next: {
     data?:          Record<string, string | boolean>;
     mediaUrls?:     string[];
@@ -212,6 +235,19 @@ export function WorksheetPopup({
         setTooBig(false);
         setSavedAt(new Date().toISOString());
         writer.setDraft(lmsId, draft.data);
+        // Sync to server — fire-and-forget, non-blocking.
+        fetch("/api/worksheet-drafts", {
+          method:  "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            lmsId,
+            data:                 draft.data,
+            notes:                draft.notes ?? null,
+            worksheetFileUrl:     draft.worksheetFile?.url     ?? null,
+            worksheetFileName:    draft.worksheetFile?.filename ?? null,
+            worksheetFileFormat:  draft.worksheetFile?.format   ?? null,
+          }),
+        }).catch(() => {});
       }
     }, DEBOUNCE_MS);
   }
@@ -359,11 +395,10 @@ export function WorksheetPopup({
     );
   }
 
-  // Submit allowed when the required inline fields are filled. (The kid can
-  // also drop a filled .docx/.pdf into chat — that path is picked up by the
-  // validator directly, no popup involvement.)
-  const inlineFilled = allRequiredFilled(schema, data);
-  const canSubmit    = inlineFilled && mediaUploading === 0;
+  // Save is always allowed as long as no file upload is in flight.
+  // Field quality is SAGE's job — blocking the save button here just frustrates
+  // students who have written valid answers that don't hit the word-count targets.
+  const canSubmit = mediaUploading === 0;
 
   return (
     <AnimatePresence>

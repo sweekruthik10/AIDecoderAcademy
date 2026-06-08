@@ -203,8 +203,20 @@ async function gradeCreateIt(
   let imageReachable = false;
   try {
     const head = await fetch(imageUrl, { method: "HEAD" });
-    imageReachable = head.ok && (head.headers.get("content-type") ?? "").startsWith("image/");
+    if (head.ok) {
+      const ct = head.headers.get("content-type") ?? "";
+      // Accept if no content-type header (some CDNs omit it on HEAD) or if it's an image.
+      // Reject only when content-type is explicitly something non-image.
+      imageReachable = !ct || ct.startsWith("image/") || ct.startsWith("application/octet-stream");
+    }
   } catch { imageReachable = false; }
+  // Fallback: if HEAD failed or was rejected, attempt a small GET range request.
+  if (!imageReachable) {
+    try {
+      const get = await fetch(imageUrl, { method: "GET", headers: { Range: "bytes=0-255" } });
+      imageReachable = get.ok || get.status === 206;
+    } catch { imageReachable = false; }
+  }
   if (!imageReachable) {
     return {
       stage: "createIt", score: 0, tier: "fail",
