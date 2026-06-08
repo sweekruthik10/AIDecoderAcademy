@@ -17,9 +17,9 @@
 //   change for any kid mid-objective. Add new ids freely; never rename old.
 
 export type WorksheetField =
-  | { kind: "text";     id: string; label: string; description?: string; placeholder?: string; weakEx?: string; strongEx?: string; minWords?: number }
-  | { kind: "longtext"; id: string; label: string; description?: string; placeholder?: string; weakEx?: string; strongEx?: string; minWords?: number; rows?: number }
-  | { kind: "yesno";    id: string; label: string; description?: string };
+  | { kind: "text";     id: string; label: string; optional?: true; description?: string; placeholder?: string; weakEx?: string; strongEx?: string; minWords?: number }
+  | { kind: "longtext"; id: string; label: string; optional?: true; description?: string; placeholder?: string; weakEx?: string; strongEx?: string; minWords?: number; rows?: number }
+  | { kind: "yesno";    id: string; label: string; optional?: true; description?: string };
 
 export interface WorksheetSection {
   id:        string;
@@ -219,7 +219,7 @@ export const OBJ10_SCHEMA: WorksheetSchema = {
           kind: "longtext", id: "funnyTestNotes",
           label: "If NO — what did you change?",
           description: "Only fill this if you flipped your Funny Test answer to YES after editing panel 3. Tell us what you changed.",
-          rows: 2,
+          rows: 2, optional: true,
         },
       ],
     },
@@ -762,37 +762,37 @@ export const OBJ4_SCHEMA: WorksheetSchema = {
           kind: "longtext", id: "style1Observation",
           label: "Style 1 (Photorealistic) — OBSERVATION",
           description: "What is literally different visually? Colour, line style, texture, light, proportion — facts only.",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
         {
           kind: "longtext", id: "style1Interpretation",
           label: "Style 1 (Photorealistic) — INTERPRETATION",
           description: "What did Firefly prioritise in this style? Did it interpret the word as you expected?",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
         {
           kind: "longtext", id: "style2Observation",
           label: "Style 2 (Anime) — OBSERVATION",
           description: "What is literally different visually? Facts only.",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
         {
           kind: "longtext", id: "style2Interpretation",
           label: "Style 2 (Anime) — INTERPRETATION",
           description: "What did Firefly prioritise in this style?",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
         {
           kind: "longtext", id: "style3Observation",
           label: "Style 3 (Your choice) — OBSERVATION",
           description: "What is literally different visually? Facts only.",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
         {
           kind: "longtext", id: "style3Interpretation",
           label: "Style 3 (Your choice) — INTERPRETATION",
           description: "What did Firefly prioritise in this style?",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
       ],
     },
@@ -806,17 +806,17 @@ export const OBJ4_SCHEMA: WorksheetSchema = {
           kind: "longtext", id: "mostSurprisingStyle",
           label: "1. Which style was most different from what you predicted?",
           description: "What did you predict that proved wrong?",
-          rows: 3, minWords: 15,
+          rows: 3, minWords: 15, optional: true,
         },
         {
           kind: "longtext", id: "realCharacterArt",
           label: "2. If a person saw all three with no labels — which is 'real', which 'a character', which 'art'?",
-          rows: 3, minWords: 12,
+          rows: 3, minWords: 12, optional: true,
         },
         {
           kind: "longtext", id: "personalityDifferent",
           label: "3. Does the subject feel like a different personality in each style — or just a different visual version of the same character?",
-          rows: 3, minWords: 15,
+          rows: 3, minWords: 15, optional: true,
         },
       ],
     },
@@ -947,8 +947,8 @@ export const OBJ9_SCHEMA: WorksheetSchema = {
         { kind: "text", id: "auditItem3", label: "Uninvited element 3", placeholder: "e.g. depth-of-field blur" },
         { kind: "text", id: "auditItem4", label: "Uninvited element 4", placeholder: "e.g. golden-hour lighting" },
         { kind: "text", id: "auditItem5", label: "Uninvited element 5", placeholder: "e.g. distant mountains" },
-        { kind: "text", id: "auditItem6", label: "Uninvited element 6 (optional)", placeholder: "optional" },
-        { kind: "text", id: "auditItem7", label: "Uninvited element 7 (optional)", placeholder: "optional" },
+        { kind: "text", id: "auditItem6", label: "Uninvited element 6 (optional)", placeholder: "optional", optional: true },
+        { kind: "text", id: "auditItem7", label: "Uninvited element 7 (optional)", placeholder: "optional", optional: true },
         { kind: "longtext", id: "predictionVsActual", label: "Predictions vs actual", description: "Which Think-It predictions were correct? Which were wrong? What surprised you?", rows: 3, minWords: 15 },
         { kind: "longtext", id: "v2NegativePrompt", label: "Version 2 negative prompt", description: "Choose 2-4 most prominent uninvited elements. e.g. 'no sky, no people, no shadows'.", rows: 2, minWords: 4 },
         { kind: "longtext", id: "v3NegativePrompt", label: "Version 3 negative prompt (extends V2)", description: "Include EVERYTHING from V2 + 2-3 more excluded elements.", rows: 2, minWords: 6 },
@@ -959,7 +959,7 @@ export const OBJ9_SCHEMA: WorksheetSchema = {
       fields: [
         { kind: "longtext", id: "mostImpactfulExclusion", label: "💥  Most impactful excluded word + why Firefly included it", description: "Identify the single negative prompt word whose removal created the biggest change. Why did Firefly assume that element belonged?", rows: 4, minWords: 20 },
         { kind: "longtext", id: "ctSkill1Assumption", label: "🔍  CT Skill 1 — What did Firefly assume + where did the assumption come from?", description: "What assumption did Firefly make? What in your base prompt might have implied it (or what training-data pattern?).", rows: 4, minWords: 20 },
-        { kind: "longtext", id: "v4Revision", label: "💡  V4 Revised Base Prompt (optional — counts for Distinction)", description: "How would you rewrite the base prompt to signal more clearly what you do and do not want — BEFORE adding negative prompts?", rows: 3, minWords: 10 },
+        { kind: "longtext", id: "v4Revision", label: "💡  V4 Revised Base Prompt (optional — counts for Distinction)", description: "How would you rewrite the base prompt to signal more clearly what you do and do not want — BEFORE adding negative prompts?", rows: 3, optional: true },
       ],
     },
   ],

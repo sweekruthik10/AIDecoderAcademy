@@ -112,10 +112,17 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
   // Order: oldest → newest, so the validator can grab whiteboardImages.at(-1)
   // for "most recent."
   const wantedOutputType = objective?.outputType ?? "image";
-  // For worksheet-only objectives (OBJ 1, outputType="text"), still collect
-  // whiteboard images so ReadyView can show the tick when the student generates one.
-  const wantsImages      = wantedOutputType === "image" || lmsId === "l1-01";
-  const wantsAudio       = wantedOutputType === "audio";
+  // Always scan for images when any objective is active — every objective may
+  // require screenshots of the student's AI tool output (e.g. ChatGPT, Gemini,
+  // Claude, Canva, Suno) regardless of its primary outputType. Each validator
+  // route decides what to do with whiteboardImages; collecting them here is
+  // always safe. Without an active objective (lmsId empty), fall back to
+  // outputType-based detection for the general playground.
+  const wantsImages      = !!lmsId || wantedOutputType === "image";
+  // Collect audio/video whenever there is an active objective — same reasoning as
+  // wantsImages: every objective route decides what to do with the arrays; always
+  // collecting is safe and ensures uploaded files reach the validator.
+  const wantsAudio       = !!lmsId || wantedOutputType === "audio";
 
   const IMG_MARKER_RE   = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
   const DOC_MARKER_RE   = /\[Document titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
@@ -136,6 +143,8 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
 
   for (const m of messages) {
     if (m.isLoading || m.role !== "user" || typeof m.content !== "string") continue;
+    // Path A: content contains an explicit [Document titled "X": URL] marker.
+    // This is present when a SAVED creation is injected via the CreationPicker.
     for (const match of m.content.matchAll(DOC_MARKER_RE)) {
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "worksheet";
@@ -143,15 +152,46 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       const format: "pdf" | "docx" = lower.includes(".pdf") ? "pdf" : "docx";
       whiteboardDocs.push({ url, filename, format });
     }
+    // Path B: content marker is stripped for display (see handleSend in playground/page.tsx).
+    // handleSend stores "docx:URL", "audio:URL", "video:URL" in attachmentMeta.
+    // This is the path taken when a student uploads a file via the plus icon.
+    if (Array.isArray(m.attachmentMeta)) {
+      for (const tag of m.attachmentMeta) {
+        if (typeof tag !== "string") continue;
+        if (tag.startsWith("docx:")) {
+          const url = tag.slice(5);
+          if (!url.startsWith("http")) continue;
+          if (whiteboardDocs.some(d => d.url === url)) continue;
+          const filename = url.split("/").pop() || "worksheet";
+          const lower    = url.toLowerCase();
+          const format: "pdf" | "docx" = lower.includes(".pdf") ? "pdf" : "docx";
+          whiteboardDocs.push({ url, filename, format });
+        } else if (tag.startsWith("audio:")) {
+          const url = tag.slice(6);
+          if (!url.startsWith("http")) continue;
+          if (whiteboardAudios.some(a => a.url === url)) continue;
+          const filename = url.split("/").pop() || "audio.mp3";
+          whiteboardAudios.push({ url, filename });
+        } else if (tag.startsWith("video:")) {
+          const url = tag.slice(6);
+          if (!url.startsWith("http")) continue;
+          if (whiteboardVideos.some(v => v.url === url)) continue;
+          const filename = url.split("/").pop() || "video";
+          whiteboardVideos.push({ url, filename });
+        }
+      }
+    }
+    // Path A for video/audio — only fires when a SAVED creation is injected via
+    // CreationPicker (the content still contains the raw marker in that case).
     for (const match of m.content.matchAll(VID_MARKER_RE)) {
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "video";
-      whiteboardVideos.push({ url, filename });
+      if (!whiteboardVideos.some(v => v.url === url)) whiteboardVideos.push({ url, filename });
     }
     for (const match of m.content.matchAll(AUDIO_MARKER_RE)) {
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "audio.mp3";
-      whiteboardAudios.push({ url, filename });
+      if (!whiteboardAudios.some(a => a.url === url)) whiteboardAudios.push({ url, filename });
     }
   }
   if (wantsImages) {
