@@ -323,46 +323,6 @@ function PlaygroundInner() {
     return () => window.removeEventListener("aida:worksheet-parsed", onParsed);
   }, [worksheetSchema, profile?.id]);
 
-  // Pre-fetch worksheet draft from server on mount — hydrates localStorage so
-  // the icon dot appears immediately and the popup opens with previous answers.
-  useEffect(() => {
-    if (!worksheetSchema || !profile?.id) return;
-    const lmsId = worksheetSchema.lmsId;
-    const profileId = profile.id;
-    fetch(`/api/worksheet-drafts?lmsId=${lmsId}`)
-      .then(r => r.ok ? r.json() : null)
-      .then((res: { draft: { data: Record<string,unknown>; notes?: string; worksheet_file_url?: string; worksheet_file_name?: string; worksheet_file_format?: string; updated_at?: string } | null } | null) => {
-        if (!res?.draft?.data) return;
-        const hasContent = Object.values(res.draft.data).some(v =>
-          typeof v === "string" ? (v as string).trim().length > 0 : v === true,
-        );
-        if (!hasContent) return;
-        // Only hydrate if localStorage is empty or server data is newer.
-        const localKey = `aida:worksheet:${lmsId}:${profileId}:draft`;
-        const existing = typeof window !== "undefined" ? localStorage.getItem(localKey) : null;
-        let shouldWrite = !existing;
-        if (existing && res.draft.updated_at) {
-          try {
-            const local = JSON.parse(existing) as { updated_at?: string };
-            const localTime  = local.updated_at ? new Date(local.updated_at).getTime() : 0;
-            const serverTime = new Date(res.draft.updated_at).getTime();
-            shouldWrite = serverTime > localTime;
-          } catch { shouldWrite = false; }
-        }
-        if (shouldWrite && typeof window !== "undefined") {
-          localStorage.setItem(localKey, JSON.stringify({
-            data:          res.draft.data,
-            notes:         res.draft.notes ?? "",
-            worksheetFile: res.draft.worksheet_file_url
-              ? { url: res.draft.worksheet_file_url, filename: res.draft.worksheet_file_name ?? "", format: res.draft.worksheet_file_format ?? "docx" }
-              : undefined,
-            updated_at: res.draft.updated_at,
-          }));
-        }
-        setHasDraft(true);
-      })
-      .catch(() => {});
-  }, [worksheetSchema?.lmsId, profile?.id]);
 
   // Loading state
   if (!profile) return (

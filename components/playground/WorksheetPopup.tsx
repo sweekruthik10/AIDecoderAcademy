@@ -235,19 +235,6 @@ export function WorksheetPopup({
         setTooBig(false);
         setSavedAt(new Date().toISOString());
         writer.setDraft(lmsId, draft.data);
-        // Sync to server — fire-and-forget, non-blocking.
-        fetch("/api/worksheet-drafts", {
-          method:  "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            lmsId,
-            data:                 draft.data,
-            notes:                draft.notes ?? null,
-            worksheetFileUrl:     draft.worksheetFile?.url     ?? null,
-            worksheetFileName:    draft.worksheetFile?.filename ?? null,
-            worksheetFileFormat:  draft.worksheetFile?.format   ?? null,
-          }),
-        }).catch(() => {});
       }
     }, DEBOUNCE_MS);
   }
