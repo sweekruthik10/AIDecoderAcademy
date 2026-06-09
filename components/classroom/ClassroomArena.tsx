@@ -98,6 +98,17 @@ const TILE_ACCENTS: Record<string, string> = {
   infographic: "#8B5CF6",
 };
 
+const TILE_EMOJIS: Record<string, string> = {
+  notes:       "📝",
+  flashcards:  "🏦",
+  mindmap:     "🗺️",
+  comic:       "🎨",
+  explainer:   "🎥",
+  audio:       "🔊",
+  podcast:     "🎙️",
+  infographic: "📊",
+};
+
 // Shown in the whiteboard while the comic script streams + first images render.
 function ComicBuildingSkeleton({ count, accent }: { count: number; accent: string }) {
   return (
@@ -616,8 +627,8 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                             // grid stays perfectly even regardless of title length.
                             height: 104,
                             textAlign:"center", gap:0 }}>
-                          {/* Icon slot — comic with real panel uses that image; all other
-                              tile types (including comic fallback) use the tile's PNG. */}
+                          {/* Icon slot — comic with real panel uses that image; all others
+                              try the tile PNG and fall back to an emoji if the file is missing. */}
                           {isComic && comicThumb ? (
                             <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
                               flexShrink:0, marginBottom:6, display:"block",
@@ -628,11 +639,22 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                             </span>
                           ) : (
                             <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
-                              flexShrink:0, marginBottom:6, display:"block",
-                              border:`1px solid ${itemAccent}55` }}>
+                              flexShrink:0, marginBottom:6, display:"flex",
+                              alignItems:"center", justifyContent:"center",
+                              border:`1px solid ${itemAccent}55`,
+                              background:`${itemAccent}15` }}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={TILE_PNGS[tileKey]} alt={tileKey}
-                                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+                                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                  const sib = e.currentTarget.nextSibling as HTMLElement | null;
+                                  if (sib) sib.style.display = "flex";
+                                }} />
+                              <span style={{ display:"none", width:"100%", height:"100%",
+                                alignItems:"center", justifyContent:"center", fontSize:14 }}>
+                                {TILE_EMOJIS[tileKey] ?? "📝"}
+                              </span>
                             </span>
                           )}
                           <div style={{ width:"72%", height:2, borderRadius:2,
