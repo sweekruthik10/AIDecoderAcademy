@@ -80,8 +80,10 @@ export async function POST(req: Request) {
     const { userId } = await auth();
     if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
-    const { prompt, conversationHistory } = await req.json();
+    const { prompt, conversationHistory, rawStyle } = await req.json();
     if (!prompt?.trim()) return NextResponse.json({ error: "Prompt required" }, { status: 400 });
+    // rawStyle = caller fully controls the art style → skip the global Pixar/Ghibli
+    // STYLE LOCK (used by comic panels that need a manga look). Default: locked.
 
     const { imageUrl, imageTitle, cleanPrompt } = extractImageContext(prompt);
     let finalPrompt = cleanPrompt;
@@ -120,7 +122,9 @@ export async function POST(req: Request) {
 
     // Always use text-to-image (no img2img) — the redux variation model doesn't follow
     // semantic edit instructions reliably.
-    const buffer = await generateImage(finalPrompt, "fal-flux2pro", true);
+    // forceStyle=false when rawStyle → global STYLE_SUFFIX is skipped so the caller's
+    // own style (e.g. manga) wins; otherwise force the house animation lock on.
+    const buffer = await generateImage(finalPrompt, "fal-flux2pro", rawStyle ? false : true);
 
     const supabase  = createAdminClient();
     const filename  = `images/${userId}/${Date.now()}.png`;

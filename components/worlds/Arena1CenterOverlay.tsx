@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import { Zap, Flame, Target, ChevronRight } from "lucide-react";
 import { isObjectiveEnabled, type Objective } from "@/lib/objectives";
@@ -47,17 +47,23 @@ export default function Arena1CenterOverlay({
 
   const firstName = profile?.display_name?.split(" ")[0] ?? "Creator";
 
+  const [isMobile, setIsMobile] = useState(false);
+  useEffect(() => {
+    const check = () => setIsMobile(window.innerWidth < 768 || window.innerHeight < 560);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, []);
+
   return (
     <div
       style={{
         position:      "absolute",
         left:          "50%",
-        top:           "66%",
+        top:           isMobile ? "50%" : "66%",
         transform:     "translate(-50%, -50%)",
-        // Width scales with viewport but never smaller than 300px or wider than 620px
-        width:         "clamp(300px, 44vw, 620px)",
-        // Never taller than 85% of the viewport — scrolls internally if content is tall
-        maxHeight:     "85vh",
+        width:         isMobile ? "min(92vw, 420px)" : "clamp(300px, 44vw, 620px)",
+        maxHeight:     isMobile ? "80vh" : "85vh",
         zIndex:        80,
         pointerEvents: "none",
       }}

@@ -22,7 +22,7 @@ export async function createVad(opts: CreateVadOptions): Promise<Vad> {
   const { MicVAD } = await import("@ricky0123/vad-web");
 
   return MicVAD.new({
-    stream:                  opts.stream,
+    getStream:               () => Promise.resolve(opts.stream),
     model:                   "legacy",
     baseAssetPath:           "/vad/",
     onnxWASMBasePath:        "/vad/",
@@ -30,9 +30,9 @@ export async function createVad(opts: CreateVadOptions): Promise<Vad> {
     // patient end-of-speech (kids pause to think mid-sentence).
     positiveSpeechThreshold: 0.6,
     negativeSpeechThreshold: 0.35,
-    minSpeechFrames:         4,    // ~96ms — must be true speech, not a click
-    redemptionFrames:        24,   // ~576ms of silence before declaring end
-    preSpeechPadFrames:      10,
+    minSpeechMs:             96,   // ~4 frames — must be true speech, not a click
+    redemptionMs:            576,  // ~24 frames of silence before declaring end
+    preSpeechPadMs:          240,  // ~10 frames of pre-speech padding
     onSpeechStart:           opts.onSpeechStart,
     onSpeechEnd:             opts.onSpeechEnd,
     onVADMisfire:            opts.onMisfire ?? (() => {}),

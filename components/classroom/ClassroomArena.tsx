@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { FlashcardDeck, parseFlashcards } from "./FlashcardDeck";
 import type { FlashCard } from "./FlashcardDeck";
+import { ComicStrip, parseComic, buildComicPrompt, buildPanelImagePrompt } from "./ComicStrip";
+import type { ParsedComic, ComicPanel } from "./ComicStrip";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, Play, X, FileText } from "lucide-react";
 import { MessageBubble } from "@/components/playground/MessageBubble";
@@ -75,7 +77,8 @@ const TILE_PROMPTS: Record<string, (t: string) => string> = {
   notes:       (t) => `Generate comprehensive study notes for "${t}" — CBSE Class 10 Science. Use clear headings, bullet points, key definitions, important equations, and a quick-revision summary. For equations, use plain text format only — no LaTeX. Write fractions as a/b or a ÷ b, use characters like θ, π, °, ±.`,
   flashcards:  (t) => `Generate 10 flashcards for "${t}" — CBSE Class 10 Science. Format EXACTLY as:\n\n**Q:** [question]\n**A:** [concise answer — key facts, definitions, equations]\n**IMG:** [image description tailored to the concept — adapt style: use diagram-style for molecules/structures/circuits, realistic-style for organisms/phenomena, illustrated-style for processes/reactions]\n\nRepeat for all 10 cards. Plain text only — no LaTeX.`,
   mindmap:     (t) => `Create a detailed text-based mind map for "${t}" — CBSE Class 10 Science. Use indented bullet points to show the hierarchy: main topic → subtopics → key facts/equations. Keep it visual and easy to follow.`,
-  comic:       (t) => `Write a short comic strip script (5–6 panels) that teaches the key concepts of "${t}" — CBSE Class 10 Science. Each panel: [Scene description] + [Character dialogue]. Make it fun, accurate, and student-friendly.`,
+  // NOTE: "comic" is intentionally NOT here — comic is a special visual mode that
+  // needs the chosen panel count, so its prompt is built via buildComicPrompt() in send().
   audio:       (t) => `Write a 2-minute audio overview script for "${t}" — CBSE Class 10 Science. Use a friendly, conversational tone. Cover the most important concepts, one key equation, and end with a memorable takeaway.`,
   podcast:     (t) => `Write a short podcast dialogue (host + expert guest) about "${t}" — CBSE Class 10 Science. 4–5 exchanges, covering key concepts, a real-world example, and a quick quiz question at the end. Keep it engaging for Class 10 students.`,
   infographic: (t) => `Create a structured infographic outline for "${t}" — CBSE Class 10 Science. Use numbered sections with emoji labels: key facts, important numbers/equations, a real-world connection, and a did-you-know fact. Format it so it reads like an infographic in plain text.`,
@@ -95,6 +98,33 @@ const TILE_ACCENTS: Record<string, string> = {
   infographic: "#8B5CF6",
 };
 
+// Shown in the whiteboard while the comic script streams + first images render.
+function ComicBuildingSkeleton({ count, accent }: { count: number; accent: string }) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ width: "100%" }}>
+      <style>{`@keyframes comicBuild{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 10,
+        padding: "5px 12px", background: "#FFE14D", border: "3px solid #000",
+        borderRadius: 10, boxShadow: "4px 4px 0 #000", transform: "rotate(-1deg)" }}>
+        <span style={{ fontSize: 14 }}>✏️</span>
+        <span style={{ fontSize: 12, fontWeight: 900, color: "#0f1c4d",
+          fontFamily: "'Syne',sans-serif", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+          Inking your {count}-panel comic…
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${count}, 1fr)`, gap: 8 }}>
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} style={{
+            aspectRatio: "3 / 4", borderRadius: 8, border: "3px solid #000", boxShadow: "5px 5px 0 #000",
+            background: "linear-gradient(90deg,#e8edff 25%,#cdd8ff 50%,#e8edff 75%)",
+            backgroundSize: "200% 100%", animation: "comicBuild 1.5s infinite",
+          }} />
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 export function ClassroomArena({ chapter, onBack }: Props) {
   const [profile,    setProfile]    = useState<Profile | null>(null);
   const [input,      setInput]      = useState("");
@@ -109,9 +139,15 @@ export function ClassroomArena({ chapter, onBack }: Props) {
   const [flashcardRaw,   setFlashcardRaw]   = useState("");
   const [flashcardsLoading, setFlashcardsLoading] = useState(false);
   const [mounted,        setMounted]        = useState(false);
+  // ── Comic state ──
+  const [comicPanelCount, setComicPanelCount] = useState<3 | 4 | 5>(4);
+  const [comics,         setComics]         = useState<Record<string, ParsedComic>>({});
+  const [buildingComic,  setBuildingComic]  = useState<{ count: number } | null>(null);
+  const [viewingComic,   setViewingComic]   = useState<ParsedComic | null>(null);
   const bottomRef           = useRef<HTMLDivElement>(null);
   const taRef               = useRef<HTMLTextAreaElement>(null);
   const pendingFlashcardRef = useRef(false);
+  const pendingComicRef     = useRef<number | null>(null);
   const wasStreamingRef     = useRef(false);
   const messagesRef         = useRef<Message[]>([]);
 
@@ -136,6 +172,45 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       r.status === "fulfilled" ? r.value : { ...cards[i], imageError: true }
     );
   }, []);
+
+  // Update a single panel of a stored comic (used as each image resolves)
+  const updateComicPanel = useCallback((msgId: string, index: number, patch: Partial<ComicPanel>) => {
+    setComics(prev => {
+      const comic = prev[msgId];
+      if (!comic) return prev;
+      const panels = comic.panels.map((p, i) => i === index ? { ...p, ...patch } : p);
+      return { ...prev, [msgId]: { ...comic, panels } };
+    });
+  }, []);
+
+  // Generate one image per panel — fired independently so panels pop in as they finish.
+  // rawStyle:true → skip the global Pixar/Ghibli lock so the manga style takes effect.
+  const generateComicPanelImage = useCallback(async (msgId: string, index: number, panel: ComicPanel) => {
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: buildPanelImagePrompt(panel.scene), rawStyle: true }),
+      });
+      const data = await res.json();
+      updateComicPanel(msgId, index, { imageUrl: data.url ?? undefined, imageError: !data.url });
+    } catch {
+      updateComicPanel(msgId, index, { imageError: true });
+    }
+  }, [updateComicPanel]);
+
+  const generateComicImages = useCallback((msgId: string, comic: ParsedComic) => {
+    comic.panels.forEach((panel, i) => {
+      generateComicPanelImage(msgId, i, panel);
+    });
+  }, [generateComicPanelImage]);
+
+  const retryComicPanel = useCallback((msgId: string, index: number) => {
+    const comic = comics[msgId];
+    if (!comic) return;
+    updateComicPanel(msgId, index, { imageUrl: undefined, imageError: false });
+    generateComicPanelImage(msgId, index, comic.panels[index]);
+  }, [comics, updateComicPanel, generateComicPanelImage]);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -255,14 +330,37 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         }
       }
     }
+    // When a comic script finishes streaming, parse it, render it inline in the
+    // whiteboard, and kick off per-panel image generation.
+    if (wasStreamingRef.current && !isStreaming && pendingComicRef.current != null) {
+      pendingComicRef.current = null;
+      const lastAssistant = [...messagesRef.current].reverse().find(m => m.role === "assistant");
+      if (lastAssistant?.content) {
+        const parsed = parseComic(lastAssistant.content);
+        if (parsed.panels.length > 0) {
+          const withRaw = { ...parsed, raw: lastAssistant.content };
+          setComics(prev => ({ ...prev, [lastAssistant.id]: withRaw }));
+          generateComicImages(lastAssistant.id, withRaw);
+        }
+      }
+      setBuildingComic(null);
+    }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming, generateFlashcardImages]);
+  }, [isStreaming, generateFlashcardImages, generateComicImages]);
 
   const send = useCallback(async (text: string) => {
     const t = text.trim();
     if (!t || !profile || isStreaming) return;
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
+    if (mode === "comic") {
+      // Comic is a special visual mode — build the script prompt with the chosen
+      // panel count, flag it pending so the stream-complete effect renders it.
+      pendingComicRef.current = comicPanelCount;
+      setBuildingComic({ count: comicPanelCount });
+      await sendMessage(buildComicPrompt(t, comicPanelCount), t);
+      return;
+    }
     const buildPrompt = TILE_PROMPTS[mode];
     if (buildPrompt) {
       if (mode === "flashcards") pendingFlashcardRef.current = true;
@@ -271,7 +369,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
     } else {
       await sendMessage(t);
     }
-  }, [profile, isStreaming, sendMessage, mode]);
+  }, [profile, isStreaming, sendMessage, mode, comicPanelCount]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
@@ -279,7 +377,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
 
   const handleTileClick = useCallback((key: string) => {
     if (isStreaming) return;
-    if (!TILE_PROMPTS[key] && key !== "explainer") return;
+    if (!TILE_PROMPTS[key] && key !== "explainer" && key !== "comic") return;
     setMode(key);
     // Focus the input so user can type their topic immediately
     setTimeout(() => taRef.current?.focus(), 50);
@@ -343,6 +441,37 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       })
       .catch(() => {});
   }, [chapter.chapter_title, flashcardCards]);
+
+  const handleComicSave = useCallback((msgId: string) => {
+    const comic = comics[msgId];
+    if (!comic) return;
+    const count = comic.panels.length;
+    const title = comic.title?.trim() ? `Comic: ${comic.title.trim()}` : `Comic: ${chapter.chapter_title}`;
+    const preview = `${count} panel${count !== 1 ? "s" : ""}`;
+    // Embed panel image URLs the same way flashcards do, so reopen can restore them.
+    const base = comic.raw ?? "";
+    const contentWithImages = base + "\n\n__images__:" + JSON.stringify(comic.panels.map(p => p.imageUrl ?? null));
+    const tempId = crypto.randomUUID();
+    setSavedItems(prev => [
+      { id: tempId, title, preview, content: contentWithImages, tags: ["classroom", chapter.chapter_title, "comic"], createdAt: Date.now() },
+      ...prev,
+    ].slice(0, 10));
+    fetch("/api/creations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title, type: "chat", output_type: "text", content: contentWithImages,
+        tags: ["classroom", chapter.chapter_title, "comic"],
+      }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.creation?.id) {
+          setSavedItems(prev => prev.map(item => item.id === tempId ? { ...item, id: data.creation.id } : item));
+        }
+      })
+      .catch(() => {});
+  }, [chapter.chapter_title, comics]);
 
   const handleRetryImages = useCallback(async (indices: number[]) => {
     if (!flashcardCards) return;
@@ -426,7 +555,17 @@ export function ClassroomArena({ chapter, onBack }: Props) {
               <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
                 <AnimatePresence>
                   {savedItems.filter(item => item.tags.includes(mode)).map((item, idx) => {
-                    const isFC = item.tags.includes("flashcards");
+                    const isFC    = item.tags.includes("flashcards");
+                    const isComic = item.tags.includes("comic");
+                    // For comics, use the first generated panel as the card thumbnail.
+                    const comicThumb = isComic ? (() => {
+                      const m = item.content.match(/__images__:(\[[\s\S]*?\])/);
+                      if (!m) return null;
+                      try {
+                        const urls = JSON.parse(m[1]) as (string | null)[];
+                        return urls.find(u => !!u) ?? null;
+                      } catch { return null; }
+                    })() : null;
                     return (
                       <div key={item.id} draggable
                         onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
@@ -440,7 +579,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                           onClick={() => {
                             if (isFC) {
                               const parsed = parseFlashcards(item.content);
-                              const imgMatch = item.content.match(/__images__:(\[.*?\])/s);
+                              const imgMatch = item.content.match(/__images__:(\[[\s\S]*?\])/);
                               if (imgMatch) {
                                 try {
                                   const urls: (string|null)[] = JSON.parse(imgMatch[1]);
@@ -448,27 +587,54 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                                 } catch { /* ignore json parse errors */ }
                               }
                               if (parsed.length > 0) { setFlashcardCards(parsed); setFlashcardRaw(item.content); }
+                            } else if (isComic) {
+                              const parsed = parseComic(item.content);
+                              const imgMatch = item.content.match(/__images__:(\[[\s\S]*?\])/);
+                              if (imgMatch) {
+                                try {
+                                  const urls: (string|null)[] = JSON.parse(imgMatch[1]);
+                                  urls.forEach((url, i) => { if (url && parsed.panels[i]) parsed.panels[i].imageUrl = url; });
+                                } catch { /* ignore json parse errors */ }
+                              }
+                              if (parsed.panels.length > 0) setViewingComic({ ...parsed, raw: item.content });
                             } else {
                               setViewingItem(item);
                             }
                           }}
                           className="cursor-grab"
-                          whileHover={{ scale:1.04, boxShadow: isFC ? "0 6px 20px rgba(124,58,237,0.28)" : "0 6px 20px rgba(37,99,235,0.28)" }}
+                          whileHover={{ scale:1.04, boxShadow: isFC ? "0 6px 20px rgba(124,58,237,0.28)" : isComic ? "0 6px 20px rgba(236,72,153,0.28)" : "0 6px 20px rgba(37,99,235,0.28)" }}
                           style={{ borderRadius:10,
                             background:"rgba(255,255,255,0.95)",
-                            border:`1px solid ${isFC ? "rgba(124,58,237,0.2)" : "rgba(37,99,235,0.15)"}`,
+                            border:`1px solid ${isFC ? "rgba(124,58,237,0.2)" : isComic ? "rgba(236,72,153,0.22)" : "rgba(37,99,235,0.15)"}`,
                             boxShadow:"0 2px 8px rgba(15,28,77,0.09)",
                             overflow:"hidden",
                             display:"flex", flexDirection:"column",
-                            alignItems:"center", padding:"10px 7px 9px",
+                            alignItems:"center", justifyContent:"flex-start", padding:"10px 7px 9px",
+                            // Every saved card (all tile types) uses one fixed height so the
+                            // grid stays perfectly even regardless of title length.
+                            height: 104,
                             textAlign:"center", gap:0 }}>
-                          <FileText
-                            style={{ color: isFC ? "#7C3AED" : "#2563eb", marginBottom:6, flexShrink:0 }}
-                            size={26}
-                            strokeWidth={1.6}
-                          />
+                          {/* Icon slot — comic uses its first panel as a small thumbnail
+                              (fixed 26px box, same footprint as the Notes icon), or 💥 as fallback. */}
+                          {isComic && comicThumb ? (
+                            <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
+                              flexShrink:0, marginBottom:6, display:"block",
+                              border:"1px solid rgba(236,72,153,0.35)" }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={comicThumb} alt={item.title}
+                                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+                            </span>
+                          ) : isComic ? (
+                            <span style={{ fontSize:23, lineHeight:1, marginBottom:6, flexShrink:0 }}>💥</span>
+                          ) : (
+                            <FileText
+                              style={{ color: isFC ? "#7C3AED" : "#2563eb", marginBottom:6, flexShrink:0 }}
+                              size={26}
+                              strokeWidth={1.6}
+                            />
+                          )}
                           <div style={{ width:"72%", height:2, borderRadius:2,
-                            background: isFC ? "#7C3AED" : "linear-gradient(90deg,#2563eb,#7c3aed)",
+                            background: isFC ? "#7C3AED" : isComic ? "#EC4899" : "linear-gradient(90deg,#2563eb,#7c3aed)",
                             marginBottom:6, flexShrink:0 }} />
                           {isFC && (
                             <p style={{ fontSize:9, fontFamily:"monospace", textTransform:"uppercase",
@@ -477,7 +643,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                             </p>
                           )}
                           <p style={{ fontSize:10, fontWeight:700, color:"#0f1c4d",
-                            lineHeight:1.3, display:"-webkit-box", WebkitLineClamp: isFC ? 2 : 3,
+                            lineHeight:1.3, display:"-webkit-box", WebkitLineClamp: 2,
                             WebkitBoxOrient:"vertical", overflow:"hidden",
                             wordBreak:"break-word" }}>
                             {item.title}
@@ -729,20 +895,42 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             </div>
           )}
 
-          {messages.map(msg => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              avatarEmoji={profile.avatar_emoji}
-              isStreaming={isStreaming && msg === messages[messages.length - 1]}
-              arenaAccent={ACCENT}
-              arenaAccentGlow={ACCENT_GLO}
-              arenaId={1}
-              onSave={handleSave}
-            />
-          ))}
+          {messages.map(msg => {
+            // Rendered comic replaces the raw script bubble in the whiteboard.
+            const comic = comics[msg.id];
+            if (comic) {
+              return (
+                <div key={msg.id} style={{ padding: "2px 0" }}>
+                  <ComicStrip
+                    data={comic}
+                    accent={TILE_ACCENTS.comic}
+                    onSave={() => handleComicSave(msg.id)}
+                    onRetryPanel={(i) => retryComicPanel(msg.id, i)}
+                  />
+                </div>
+              );
+            }
+            // While the comic script is still streaming, show the skeleton (not raw text).
+            const isBuilding = !!buildingComic && msg.role === "assistant"
+              && msg === messages[messages.length - 1];
+            if (isBuilding) {
+              return <ComicBuildingSkeleton key={msg.id} count={buildingComic!.count} accent={TILE_ACCENTS.comic} />;
+            }
+            return (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                avatarEmoji={profile.avatar_emoji}
+                isStreaming={isStreaming && msg === messages[messages.length - 1]}
+                arenaAccent={ACCENT}
+                arenaAccentGlow={ACCENT_GLO}
+                arenaId={1}
+                onSave={handleSave}
+              />
+            );
+          })}
 
-          {isStreaming && (
+          {isStreaming && !buildingComic && (
             <div style={{ display:"flex", gap:4, padding:"2px 0 2px 28px" }}>
               {[0,1,2].map(i => (
                 <span key={i} className="dot"
@@ -757,6 +945,30 @@ export function ClassroomArena({ chapter, onBack }: Props) {
 
         {/* Prompt bar */}
         <div style={{ flexShrink:0, padding:"0 4px 8px" }}>
+          {/* Comic panel-count chips — only in comic mode */}
+          {mode === "comic" && (
+            <div style={{ display:"flex", alignItems:"center", gap:6, padding:"0 2px 7px" }}>
+              <span style={{ fontSize:9, fontWeight:800, letterSpacing:"0.1em",
+                textTransform:"uppercase", color:tileAccent,
+                fontFamily:"'JetBrains Mono',monospace" }}>Panels</span>
+              {([3,4,5] as const).map(n => {
+                const active = comicPanelCount === n;
+                return (
+                  <button key={n} onClick={() => setComicPanelCount(n)}
+                    style={{ width:30, height:26, borderRadius:9, flexShrink:0,
+                      fontSize:13, fontWeight:800, cursor:"pointer",
+                      fontFamily:"'Syne',sans-serif",
+                      background: active ? tileAccent : "rgba(255,255,255,0.85)",
+                      color: active ? "#fff" : "#0f1c4d",
+                      border: active ? "none" : `1.5px solid ${tileAccent}40`,
+                      boxShadow: active ? `0 2px 10px ${tileAccent}66` : "0 1px 4px rgba(15,28,77,0.12)",
+                      transition:"all 0.18s ease" }}>
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display:"flex", alignItems:"center", gap:8,
             background:"linear-gradient(180deg, rgba(18,28,72,0.92) 0%, rgba(10,16,52,0.95) 100%)",
             backdropFilter:"blur(24px)",
@@ -774,7 +986,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                 t.style.height = Math.min(t.scrollHeight, 80) + "px";
               }}
               onKeyDown={handleKey}
-              placeholder={mode !== "notes" && TILE_PROMPTS[mode] ? `Type a topic for ${TILES.find(t => t.key === mode)?.label ?? mode}…` : "Ask anything about this chapter…"}
+              placeholder={mode === "comic" ? "Type a topic for your comic…" : mode !== "notes" && TILE_PROMPTS[mode] ? `Type a topic for ${TILES.find(t => t.key === mode)?.label ?? mode}…` : "Ask anything about this chapter…"}
               rows={1}
               disabled={!profile}
               style={{ flex:1, resize:"none", border:"none", outline:"none",
@@ -868,6 +1080,44 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             onSave={handleFlashcardSave}
             onRetryImages={handleRetryImages}
           />
+        )}
+      </AnimatePresence>
+
+      {/* ── Comic viewer overlay (reopened from My Creations) ──────────────────── */}
+      <AnimatePresence>
+        {viewingComic && (
+          <motion.div
+            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ zIndex:55, background:"rgba(5,8,25,0.85)", backdropFilter:"blur(10px)" }}
+            onClick={() => setViewingComic(null)}
+          >
+            <motion.div
+              initial={{ opacity:0, scale:0.95, y:12 }}
+              animate={{ opacity:1, scale:1, y:0 }}
+              exit={{ opacity:0, scale:0.95, y:12 }}
+              transition={{ duration:0.22 }}
+              onClick={e => e.stopPropagation()}
+              className="flex flex-col"
+              style={{ width:"min(560px,82vw)", maxHeight:"86vh",
+                background:"rgba(255,255,255,0.97)", borderRadius:20, overflow:"hidden",
+                boxShadow:"0 24px 64px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.9)" }}
+            >
+              <div className="flex-shrink-0 flex items-center gap-3 px-5 py-3.5"
+                style={{ borderBottom:"1px solid rgba(236,72,153,0.12)" }}>
+                <span className="text-base">💥</span>
+                <p className="flex-1 font-display font-bold text-sm truncate" style={{ color:"#0f1c4d" }}>
+                  Comic · {chapter.chapter_title}
+                </p>
+                <button onClick={() => setViewingComic(null)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-lg transition-colors hover:bg-gray-100"
+                  style={{ color:"rgba(15,28,77,0.4)", lineHeight:1 }}>×</button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4" style={{ scrollbarWidth:"thin" }}>
+                <ComicStrip data={viewingComic} accent={TILE_ACCENTS.comic} saved />
+              </div>
+            </motion.div>
+          </motion.div>
         )}
       </AnimatePresence>
 

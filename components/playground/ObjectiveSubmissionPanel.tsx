@@ -1463,7 +1463,7 @@ function ResultView({ result }: { result: FinalResult }) {
           {result.canvas.fieldFeedback.success     && <div>• <b>Success:</b> {result.canvas.fieldFeedback.success}</div>}
         </div>
       )}
-      {result.storyIt && !result.storyIt.passed && !(result.storyIt as Record<string, unknown>).funnyTestBlocked && (
+      {result.storyIt && !result.storyIt.passed && !(result.storyIt as unknown as Record<string, unknown>).funnyTestBlocked && (
         <div className="text-[11px] space-y-1 p-2 rounded-md" style={{ background: "rgba(255,107,107,0.05)", border: "1px solid rgba(255,107,107,0.2)" }}>
           <div className="font-display font-bold mb-1" style={{ color: "#FF6B6B" }}>Story It checks</div>
           {result.storyIt.checks ? (
@@ -1473,7 +1473,7 @@ function ResultView({ result }: { result: FinalResult }) {
               {!result.storyIt.checks.characterConsistent.passed && <div>• {result.storyIt.checks.characterConsistent.line}</div>}
             </>
           ) : (
-            <div>• {(result.storyIt as Record<string, unknown>).summary as string ?? "Revisit your Story It answers — make each one more specific."}</div>
+            <div>• {(result.storyIt as unknown as Record<string, unknown>).summary as string ?? "Revisit your Story It answers — make each one more specific."}</div>
           )}
         </div>
       )}
