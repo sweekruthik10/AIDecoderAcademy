@@ -7,7 +7,7 @@ import type { FlashCard } from "./FlashcardDeck";
 import { ComicStrip, parseComic, buildComicPrompt, buildPanelImagePrompt } from "./ComicStrip";
 import type { ParsedComic, ComicPanel } from "./ComicStrip";
 import { AnimatePresence, motion } from "framer-motion";
-import { ChevronLeft, Play, X, FileText } from "lucide-react";
+import { ChevronLeft, Play, X } from "lucide-react";
 import { MessageBubble } from "@/components/playground/MessageBubble";
 import type { Message }  from "@/components/playground/useChat";
 import ReactMarkdown from "react-markdown";
@@ -557,6 +557,8 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                   {savedItems.filter(item => item.tags.includes(mode)).map((item, idx) => {
                     const isFC    = item.tags.includes("flashcards");
                     const isComic = item.tags.includes("comic");
+                    const tileKey      = item.tags.find(t => TILE_PNGS[t]) ?? "notes";
+                    const itemAccent   = TILE_ACCENTS[tileKey] ?? ACCENT;
                     // For comics, use the first generated panel as the card thumbnail.
                     const comicThumb = isComic ? (() => {
                       const m = item.content.match(/__images__:(\[[\s\S]*?\])/);
@@ -602,10 +604,10 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                             }
                           }}
                           className="cursor-grab"
-                          whileHover={{ scale:1.04, boxShadow: isFC ? "0 6px 20px rgba(124,58,237,0.28)" : isComic ? "0 6px 20px rgba(236,72,153,0.28)" : "0 6px 20px rgba(37,99,235,0.28)" }}
+                          whileHover={{ scale:1.04, boxShadow: `0 6px 20px ${itemAccent}45` }}
                           style={{ borderRadius:10,
                             background:"rgba(255,255,255,0.95)",
-                            border:`1px solid ${isFC ? "rgba(124,58,237,0.2)" : isComic ? "rgba(236,72,153,0.22)" : "rgba(37,99,235,0.15)"}`,
+                            border:`1px solid ${itemAccent}35`,
                             boxShadow:"0 2px 8px rgba(15,28,77,0.09)",
                             overflow:"hidden",
                             display:"flex", flexDirection:"column",
@@ -614,27 +616,27 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                             // grid stays perfectly even regardless of title length.
                             height: 104,
                             textAlign:"center", gap:0 }}>
-                          {/* Icon slot — comic uses its first panel as a small thumbnail
-                              (fixed 26px box, same footprint as the Notes icon), or 💥 as fallback. */}
+                          {/* Icon slot — comic with real panel uses that image; all other
+                              tile types (including comic fallback) use the tile's PNG. */}
                           {isComic && comicThumb ? (
                             <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
                               flexShrink:0, marginBottom:6, display:"block",
-                              border:"1px solid rgba(236,72,153,0.35)" }}>
+                              border:`1px solid ${itemAccent}55` }}>
                               {/* eslint-disable-next-line @next/next/no-img-element */}
                               <img src={comicThumb} alt={item.title}
                                 style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
                             </span>
-                          ) : isComic ? (
-                            <span style={{ fontSize:23, lineHeight:1, marginBottom:6, flexShrink:0 }}>💥</span>
                           ) : (
-                            <FileText
-                              style={{ color: isFC ? "#7C3AED" : "#2563eb", marginBottom:6, flexShrink:0 }}
-                              size={26}
-                              strokeWidth={1.6}
-                            />
+                            <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
+                              flexShrink:0, marginBottom:6, display:"block",
+                              border:`1px solid ${itemAccent}55` }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={TILE_PNGS[tileKey]} alt={tileKey}
+                                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+                            </span>
                           )}
                           <div style={{ width:"72%", height:2, borderRadius:2,
-                            background: isFC ? "#7C3AED" : isComic ? "#EC4899" : "linear-gradient(90deg,#2563eb,#7c3aed)",
+                            background: itemAccent,
                             marginBottom:6, flexShrink:0 }} />
                           {isFC && (
                             <p style={{ fontSize:9, fontFamily:"monospace", textTransform:"uppercase",
