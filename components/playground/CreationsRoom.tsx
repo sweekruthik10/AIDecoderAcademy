@@ -330,6 +330,30 @@ export function CreationsRoom({
 
   const activeMeta = OUTPUT_META[selected] ?? OUTPUT_META.text;
 
+  // Worksheet → Whiteboard handoff. WorksheetPopup dispatches this event when
+  // the student clicks "Send to Whiteboard" on a generated prompt; we prefill
+  // the composer and focus it so the student can edit or hit Send themselves.
+  useEffect(() => {
+    function onSendFromWorksheet(e: Event) {
+      const detail = (e as CustomEvent<{ text?: string }>).detail;
+      const text   = (detail?.text ?? "").trim();
+      if (!text) return;
+      setInput(text);
+      requestAnimationFrame(() => {
+        const ta = taRef.current;
+        if (!ta) return;
+        ta.style.height = "auto";
+        ta.style.height = Math.min(ta.scrollHeight, 80) + "px";
+        ta.focus({ preventScroll: true });
+        // Cursor at the end so the student can append/edit naturally.
+        const len = ta.value.length;
+        try { ta.setSelectionRange(len, len); } catch { /* some browsers throw on detached nodes */ }
+      });
+    }
+    window.addEventListener("worksheet-send-to-whiteboard", onSendFromWorksheet as EventListener);
+    return () => window.removeEventListener("worksheet-send-to-whiteboard", onSendFromWorksheet as EventListener);
+  }, []);
+
   const MAX_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB — matches server limit
 
   // Upload a File object to Supabase temp storage via /api/upload-temp.

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import { PromptPackCard, type PromptPack, type PromptPart } from "@/components/aida/PromptPackCard";
 import { usePathname } from "next/navigation";
 import { X, Send, Mic, Square, MessageSquare, Radio, PhoneOff } from "lucide-react";
 import ReactMarkdown from "react-markdown";
@@ -92,8 +93,11 @@ interface ChatMessage {
   // "nudge" = AIDA's inline thought-bubble reaction to a whiteboard prompt.
   // Rendered with a distinct (italic, dimmer) thought-bubble style. Not part
   // of the conversation history sent back to /api/aida.
-  kind?:   "nudge";
+  kind?:   "nudge" | "promptPack";
   nudgeKind?: "progress" | "encourage" | "stray";
+  // "promptPack" = the worksheet's Build-my-prompt result, handed to AIDA and
+  // rendered as a copyable stepper card (PromptPackCard).
+  pack?: PromptPack;
 }
 
 type PlaygroundMessage = import("@/components/playground/useChat").Message;
@@ -221,15 +225,44 @@ export function AidaAssistant({ profile }: { profile: Profile | null }) {
     const onValidatorClose = () => setValidatorPanelOpen(false);
     const onWorksheetOpen  = () => setWorksheetPopupOpen(true);
     const onWorksheetClose = () => setWorksheetPopupOpen(false);
+    // Worksheet "Build my prompt" → open AIDA + drop the prompt pack as a card.
+    const onPromptPack = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        { objectiveTitle?: string; prompts?: PromptPart[]; attachment?: string } | undefined;
+      if (!d?.prompts?.length) return;
+      const ps = d.prompts;
+      // Keep a plain-text version of the pack as the message content so AIDA has
+      // context for follow-ups ("why does this prompt work?"). The CARD is what's
+      // shown; this text is only used in the chat history sent to /api/aida — so
+      // she knows these are prompts SHE gave, not a vague prompt to critique.
+      const body = ps
+        .map((p, i) =>
+          (ps.length > 1 ? `Prompt ${i + 1} — ${p.label}:\n${p.prompt}` : p.prompt) +
+          (p.why ? `\n(Why it works: ${p.why})` : ""))
+        .join("\n\n");
+      const summary =
+        `Here ${ps.length > 1 ? `are ${ps.length} prompts` : "is a prompt"} you can use` +
+        `${d.objectiveTitle ? ` for "${d.objectiveTitle}"` : ""}:\n\n${body}` +
+        `${d.attachment ? `\n\n${d.attachment}` : ""}`;
+      setOpen(true);
+      setMessages(prev => [...prev, {
+        role: "assistant",
+        content: summary,
+        kind: "promptPack",
+        pack: { objectiveTitle: d.objectiveTitle, prompts: ps, attachment: d.attachment },
+      }]);
+    };
     window.addEventListener("validator-panel-open",  onValidatorOpen);
     window.addEventListener("validator-panel-close", onValidatorClose);
     window.addEventListener("worksheet-popup-open",  onWorksheetOpen);
     window.addEventListener("worksheet-popup-close", onWorksheetClose);
+    window.addEventListener("aida-open-prompt-pack", onPromptPack);
     return () => {
       window.removeEventListener("validator-panel-open",  onValidatorOpen);
       window.removeEventListener("validator-panel-close", onValidatorClose);
       window.removeEventListener("worksheet-popup-open",  onWorksheetOpen);
       window.removeEventListener("worksheet-popup-close", onWorksheetClose);
+      window.removeEventListener("aida-open-prompt-pack", onPromptPack);
     };
   }, []);
 
@@ -1231,6 +1264,21 @@ export function AidaAssistant({ profile }: { profile: Profile | null }) {
                       </svg>
                     )}
                   </button>
+                </div>
+              </div>
+            );
+          }
+          // Prompt Pack card — copyable prompt stepper handed from the worksheet.
+          if (msg.kind === "promptPack" && msg.pack) {
+            return (
+              <div key={i} className="flex justify-start">
+                <div className="w-full max-w-[94%]">
+                  <PromptPackCard
+                    pack={msg.pack}
+                    onSendToWhiteboard={(text) =>
+                      window.dispatchEvent(new CustomEvent("worksheet-send-to-whiteboard", { detail: { text } }))
+                    }
+                  />
                 </div>
               </div>
             );
