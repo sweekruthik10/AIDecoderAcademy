@@ -31,22 +31,25 @@ interface Props {
 
 // Per output-type loading colours (unchanged)
 const COLOR_MAP: Record<string, { ring: string; bg: string; bar: string; text: string }> = {
-  cyan:   { ring: "border-[#00D4FF]/35", bg: "bg-white/[0.04]", bar: "bg-[#00D4FF] shadow-[0_0_14px_rgba(0,212,255,0.45)]",  text: "text-[#7AEFFF]"  },
-  pink:   { ring: "border-[#FF2D78]/35", bg: "bg-white/[0.04]", bar: "bg-[#FF2D78] shadow-[0_0_14px_rgba(255,45,120,0.45)]", text: "text-[#FF8FB8]"  },
-  purple: { ring: "border-[#7C3AED]/40", bg: "bg-white/[0.04]", bar: "bg-[#9F67FF] shadow-[0_0_14px_rgba(159,103,255,0.45)]",text: "text-[#C4B5FD]"  },
-  amber:  { ring: "border-[#FF6B2B]/35", bg: "bg-white/[0.04]", bar: "bg-[#FF6B2B] shadow-[0_0_14px_rgba(255,107,43,0.4)]",  text: "text-[#FFB38A]"  },
-  volt:   { ring: "border-[#C8FF00]/35", bg: "bg-white/[0.04]", bar: "bg-[#C8FF00] shadow-[0_0_14px_rgba(200,255,0,0.4)]",   text: "text-[#DEFF70]"  },
-  green:  { ring: "border-[#00FF94]/35", bg: "bg-white/[0.04]", bar: "bg-[#00FF94] shadow-[0_0_14px_rgba(0,255,148,0.4)]",   text: "text-[#7BFFC4]"  },
+  cyan:   { ring: "border-[#00D4FF]/50", bg: "bg-[#060e18]", bar: "bg-[#00D4FF] shadow-[0_0_14px_rgba(0,212,255,0.45)]",  text: "text-[#7AEFFF]"  },
+  pink:   { ring: "border-[#FF2D78]/50", bg: "bg-[#120009]", bar: "bg-[#FF2D78] shadow-[0_0_14px_rgba(255,45,120,0.45)]", text: "text-[#FF8FB8]"  },
+  purple: { ring: "border-[#7C3AED]/55", bg: "bg-[#0d0618]", bar: "bg-[#9F67FF] shadow-[0_0_14px_rgba(159,103,255,0.45)]",text: "text-[#C4B5FD]"  },
+  amber:  { ring: "border-[#FF6B2B]/50", bg: "bg-[#140800]", bar: "bg-[#FF6B2B] shadow-[0_0_14px_rgba(255,107,43,0.4)]",  text: "text-[#FFB38A]"  },
+  volt:   { ring: "border-[#C8FF00]/50", bg: "bg-[#0a0f00]", bar: "bg-[#C8FF00] shadow-[0_0_14px_rgba(200,255,0,0.4)]",   text: "text-[#DEFF70]"  },
+  green:  { ring: "border-[#00FF94]/50", bg: "bg-[#001409]", bar: "bg-[#00FF94] shadow-[0_0_14px_rgba(0,255,148,0.4)]",   text: "text-[#7BFFC4]"  },
+  // Dark variant for classroom (light background)
+  dark:   { ring: "border-[#1e3a8a]/60", bg: "bg-[#0a1640]",  bar: "bg-[#3b82f6]", text: "text-white" },
 };
 
 // Map arena id to loading bubble color key
 const ARENA_COLOR: Record<number, string> = {
-  1: "purple",
-  2: "cyan",
-  3: "amber",
-  4: "green",
-  5: "pink",
-  6: "volt",
+  1:  "purple",
+  2:  "cyan",
+  3:  "amber",
+  4:  "green",
+  5:  "pink",
+  6:  "volt",
+  10: "dark",   // classroom context
 };
 
 function LoadingBubble({ outputType, arenaId }: { outputType?: string; arenaId?: number }) {
@@ -84,7 +87,7 @@ function LoadingBubble({ outputType, arenaId }: { outputType?: string; arenaId?:
           <p className={cn("text-xs font-display font-extrabold leading-tight tracking-tight", colors.text)}>
             {meta.label}{dots}
           </p>
-          <p className="text-[10px] text-white/35 mt-0.5">20–30 seconds</p>
+          <p className={cn("text-[10px] mt-0.5", meta.color === "dark" ? "text-white/50" : "text-white/35")}>20–30 seconds</p>
         </div>
       </div>
       <div className="h-1 w-full bg-[#1E1E30] rounded-full overflow-hidden border border-white/10">
