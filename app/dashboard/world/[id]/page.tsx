@@ -107,7 +107,6 @@ export default function WorldPage() {
             <Arena1CenterOverlay
               objectives={objectives}
               completed={completed}
-              selectedObjective={selectedObjective}
               profile={profile}
               onStartNext={handleStartObjective}
             />
