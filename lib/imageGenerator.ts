@@ -105,11 +105,14 @@ const FAL_CONFIGS: Record<string, { endpoint: string; fallback?: string; payload
     },
   },
   "fal-img2img": {
-    endpoint: "fal-ai/flux-pro/v1.1/redux",
+    // Qwen-Image-Edit-2509 is an INSTRUCTION-based editor: it applies edits like
+    // "change the hair to blue" while preserving subject identity, and it holds
+    // the flux-pro/v1.1 create style well (chosen in a bake-off vs redux/kontext/
+    // seededit — redux ignored instructions; kontext drifted the look; qwen keeps
+    // the flux look AND obeys). Source goes in image_urls[] (NOT image_url).
+    endpoint: "fal-ai/qwen-image-edit-2509",
     payload: {
-      image_size: "landscape_16_9",
       output_format: "png",
-      num_inference_steps: 28,
     },
   },
   "fal-juggernaut": {
@@ -165,9 +168,12 @@ async function generateFal(prompt: string, model: ImageModel, imageUrl?: string)
     try {
       const body: Record<string, unknown> = { prompt: clean, ...activePayload };
       if (imageUrl) {
-        // flux-pro/v1.1/redux uses image_url for the reference image
-        body.image_url = imageUrl;
-        body.strength  = 0.8; // how much to follow the prompt vs preserve original
+        // qwen-image-edit-2509: source image goes in image_urls[], the edit
+        // instruction is the prompt. Qwen applies edits faithfully but drifts on
+        // vague prompts, so we append an explicit preservation clause so it
+        // changes ONLY what the instruction asks and keeps the flux look.
+        body.image_urls = [imageUrl];
+        body.prompt = `${clean}. Keep the same character, art style, pose, framing, glasses/accessories, clothing, and background — change ONLY what the instruction asks.`;
       }
       resp = await fetch(`https://queue.fal.run/${endpoint}`, {
         method: "POST", headers,
