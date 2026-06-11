@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import { FlashcardDeck, parseFlashcards } from "./FlashcardDeck";
 import type { FlashCard } from "./FlashcardDeck";
-import { AudioOverviewMessage, type AudioOverviewPayload } from "./AudioOverviewMessage";
-import { PodcastLoading, type LoadProgress } from "./PodcastLoading";
-import { PodcastPlayer, type PodcastResult } from "./PodcastPlayer";
+import { ComicStrip, parseComic, buildComicPrompt, buildPanelImagePrompt } from "./ComicStrip";
+import type { ParsedComic, ComicPanel } from "./ComicStrip";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, Play, X } from "lucide-react";
 import { MessageBubble } from "@/components/playground/MessageBubble";
@@ -17,9 +17,6 @@ interface Props {
   chapter: Chapter;
   onBack:  () => void;
 }
-
-// Local extension: classroom messages may carry a rich audio-overview payload.
-type ClassroomMessage = Message & { audioOverview?: AudioOverviewPayload };
 
 interface SavedItem  { id: string; title: string; preview: string; content: string; createdAt: number; tags: string[]; }
 interface VideoItem  {
@@ -49,46 +46,184 @@ function getVideos(subject: string): VideoItem[] {
   }];
 }
 
-// Left toolbar tile hotspot positions (% of viewport)
+// Left toolbar tile positions — evenly fills the clean sidebar panel.
+// left/width cover only the label text area (icon is to the left of label).
+// Tiles start a few % from the screen edge; label sits in the right ~60% of
+// each card. Adjust left/width if the background image shifts on your screen.
 const TILES = [
-  { key:"notes",      label:"Notes",           active:true,  top:"11%" },
-  { key:"flashcards", label:"Flashcards",       active:true,  top:"22%" },
-  { key:"mindmap",    label:"Mind Map",         active:false, top:"33%" },
-  { key:"comic",      label:"Comic Creations",  active:false, top:"44%" },
-  { key:"explainer",  label:"Explainer Videos", active:false, top:"55%" },
-  { key:"audio",      label:"Audio Overview",   active:true,  top:"66%" },
-  { key:"podcast",    label:"Audio Podcast",    active:true,  top:"77%" },
-] as const;
+  { key:"notes",       label:"Notes",            top:"2%",  left:"5%", width:"5%", height:"10.5%" },
+  { key:"flashcards",  label:"Flashcards",        top:"13%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"mindmap",     label:"Mind Map",          top:"24%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"comic",       label:"Comic Creations",   top:"35%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"explainer",   label:"Explainer Videos",  top:"46%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"audio",       label:"Audio Overview",    top:"57%", left:"5%", width:"5%", height:"10.5%" },
+  { key:"podcast",     label:"Audio Podcast",     top:"60%", left:"5%", width:"5%", height:"9%"   },
+  { key:"infographic", label:"Infographic",       top:"76%", left:"5%", width:"5%", height:"8%"   },
+];
+
+// PNG overlay for each tile — placed on top of the baked-in background tiles
+const TILE_PNGS: Record<string, string> = {
+  notes:       "/classroom/Tiles/notes.png",
+  flashcards:  "/classroom/Tiles/flashcards.png",
+  mindmap:     "/classroom/Tiles/mindmap.png",
+  comic:       "/classroom/Tiles/comic creations.png",
+  explainer:   "/classroom/Tiles/explainer videos.png",
+  audio:       "/classroom/Tiles/audio overview.png",
+  podcast:     "/classroom/Tiles/audio podcast .png",
+  infographic: "/classroom/Tiles/infographic.png",
+};
 
 const TILE_PROMPTS: Record<string, (t: string) => string> = {
-  notes:      (t) => `Generate comprehensive study notes for "${t}" — CBSE Class 10 Science. Use clear headings, bullet points, key definitions, important equations, and a quick-revision summary. For equations, use plain text format only — no LaTeX. Write fractions as a/b or a ÷ b, use characters like θ, π, °, ±. Examples: sin(90° - θ) = cos(θ), csc(θ) = 1/sin(θ).`,
-  flashcards: (t) => `Generate 10 flashcards for "${t}" — CBSE Class 10 Science. Format each as:\n**Q:** [question]\n**A:** [answer]\n\nCover the most important definitions, reactions, and concepts for board exams. For any equations in answers, use plain text — no LaTeX.`,
+  notes:       (t) => `Generate comprehensive study notes for "${t}" — CBSE Class 10 Science. Use clear headings, bullet points, key definitions, important equations, and a quick-revision summary. For equations, use plain text format only — no LaTeX. Write fractions as a/b or a ÷ b, use characters like θ, π, °, ±.`,
+  flashcards:  (t) => `Generate 10 flashcards for "${t}" — CBSE Class 10 Science. Format EXACTLY as:\n\n**Q:** [question]\n**A:** [concise answer — key facts, definitions, equations]\n**IMG:** [image description tailored to the concept — adapt style: use diagram-style for molecules/structures/circuits, realistic-style for organisms/phenomena, illustrated-style for processes/reactions]\n\nRepeat for all 10 cards. Plain text only — no LaTeX.`,
+  mindmap:     (t) => `Create a detailed text-based mind map for "${t}" — CBSE Class 10 Science. Use indented bullet points to show the hierarchy: main topic → subtopics → key facts/equations. Keep it visual and easy to follow.`,
+  // NOTE: "comic" is intentionally NOT here — comic is a special visual mode that
+  // needs the chosen panel count, so its prompt is built via buildComicPrompt() in send().
+  audio:       (t) => `Write a 2-minute audio overview script for "${t}" — CBSE Class 10 Science. Use a friendly, conversational tone. Cover the most important concepts, one key equation, and end with a memorable takeaway.`,
+  podcast:     (t) => `Write a short podcast dialogue (host + expert guest) about "${t}" — CBSE Class 10 Science. 4–5 exchanges, covering key concepts, a real-world example, and a quick quiz question at the end. Keep it engaging for Class 10 students.`,
+  infographic: (t) => `Create a structured infographic outline for "${t}" — CBSE Class 10 Science. Use numbered sections with emoji labels: key facts, important numbers/equations, a real-world connection, and a did-you-know fact. Format it so it reads like an infographic in plain text.`,
 };
 
 const ACCENT     = "#2563eb";
 const ACCENT_GLO = "rgba(37,99,235,0.35)";
 
+const TILE_ACCENTS: Record<string, string> = {
+  notes:       "#7C3AED",
+  flashcards:  "#3B82F6",
+  mindmap:     "#22C55E",
+  comic:       "#EC4899",
+  explainer:   "#3B82F6",
+  audio:       "#06B6D4",
+  podcast:     "#F97316",
+  infographic: "#8B5CF6",
+};
+
+const TILE_EMOJIS: Record<string, string> = {
+  notes:       "📝",
+  flashcards:  "🏦",
+  mindmap:     "🗺️",
+  comic:       "🎨",
+  explainer:   "🎥",
+  audio:       "🔊",
+  podcast:     "🎙️",
+  infographic: "📊",
+};
+
+// Shown in the whiteboard while the comic script streams + first images render.
+function ComicBuildingSkeleton({ count, accent }: { count: number; accent: string }) {
+  return (
+    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ width: "100%" }}>
+      <style>{`@keyframes comicBuild{0%{background-position:200% 0}100%{background-position:-200% 0}}`}</style>
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 7, marginBottom: 10,
+        padding: "5px 12px", background: "#FFE14D", border: "3px solid #000",
+        borderRadius: 10, boxShadow: "4px 4px 0 #000", transform: "rotate(-1deg)" }}>
+        <span style={{ fontSize: 14 }}>✏️</span>
+        <span style={{ fontSize: 12, fontWeight: 900, color: "#0f1c4d",
+          fontFamily: "'Syne',sans-serif", textTransform: "uppercase", letterSpacing: "0.02em" }}>
+          Inking your {count}-panel comic…
+        </span>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: `repeat(${count}, 1fr)`, gap: 8 }}>
+        {Array.from({ length: count }).map((_, i) => (
+          <div key={i} style={{
+            aspectRatio: "3 / 4", borderRadius: 8, border: "3px solid #000", boxShadow: "5px 5px 0 #000",
+            background: "linear-gradient(90deg,#e8edff 25%,#cdd8ff 50%,#e8edff 75%)",
+            backgroundSize: "200% 100%", animation: "comicBuild 1.5s infinite",
+          }} />
+        ))}
+      </div>
+    </motion.div>
+  );
+}
+
 export function ClassroomArena({ chapter, onBack }: Props) {
   const [profile,    setProfile]    = useState<Profile | null>(null);
   const [input,      setInput]      = useState("");
-  const [activeHint, setActiveHint] = useState<string | null>(null);
   const [savedItems,   setSavedItems]   = useState<SavedItem[]>([]);
   const [viewingItem,  setViewingItem]  = useState<SavedItem | null>(null);
   const [binDragOver,  setBinDragOver]  = useState(false);
-  const [messages,     setMessages]     = useState<ClassroomMessage[]>([]);
+  const [messages,     setMessages]     = useState<Message[]>([]);
   const [isStreaming,  setIsStreaming]  = useState(false);
-  const [mode,           setMode]           = useState<"notes" | "videos">("notes");
+  const [mode,           setMode]           = useState("notes");
   const [playingVideo,   setPlayingVideo]   = useState<VideoItem | null>(null);
   const [flashcardCards, setFlashcardCards] = useState<FlashCard[] | null>(null);
   const [flashcardRaw,   setFlashcardRaw]   = useState("");
-  const [audioOverviewMode, setAudioOverviewMode] = useState(false);
-  const [podcastProgress, setPodcastProgress] = useState<LoadProgress | null>(null);
-  const [podcast,         setPodcast]         = useState<PodcastResult | null>(null);
+  const [flashcardsLoading, setFlashcardsLoading] = useState(false);
+  const [mounted,        setMounted]        = useState(false);
+  // ── Comic state ──
+  const [comicPanelCount, setComicPanelCount] = useState<3 | 4 | 5>(4);
+  const [comics,         setComics]         = useState<Record<string, ParsedComic>>({});
+  const [buildingComic,  setBuildingComic]  = useState<{ count: number } | null>(null);
+  const [viewingComic,   setViewingComic]   = useState<ParsedComic | null>(null);
   const bottomRef           = useRef<HTMLDivElement>(null);
   const taRef               = useRef<HTMLTextAreaElement>(null);
   const pendingFlashcardRef = useRef(false);
+  const pendingComicRef     = useRef<number | null>(null);
   const wasStreamingRef     = useRef(false);
-  const messagesRef         = useRef<ClassroomMessage[]>([]);
+  const messagesRef         = useRef<Message[]>([]);
+
+  const generateFlashcardImages = useCallback(async (cards: FlashCard[]): Promise<FlashCard[]> => {
+    const results = await Promise.allSettled(
+      cards.map(async (card) => {
+        if (!card.imagePrompt) return card;
+        try {
+          const res = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: card.imagePrompt }),
+          });
+          const data = await res.json();
+          return { ...card, imageUrl: data.url ?? undefined, imageError: !data.url };
+        } catch {
+          return { ...card, imageError: true };
+        }
+      })
+    );
+    return results.map((r, i) =>
+      r.status === "fulfilled" ? r.value : { ...cards[i], imageError: true }
+    );
+  }, []);
+
+  // Update a single panel of a stored comic (used as each image resolves)
+  const updateComicPanel = useCallback((msgId: string, index: number, patch: Partial<ComicPanel>) => {
+    setComics(prev => {
+      const comic = prev[msgId];
+      if (!comic) return prev;
+      const panels = comic.panels.map((p, i) => i === index ? { ...p, ...patch } : p);
+      return { ...prev, [msgId]: { ...comic, panels } };
+    });
+  }, []);
+
+  // Generate one image per panel — fired independently so panels pop in as they finish.
+  // rawStyle:true → skip the global Pixar/Ghibli lock so the manga style takes effect.
+  const generateComicPanelImage = useCallback(async (msgId: string, index: number, panel: ComicPanel) => {
+    try {
+      const res = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: buildPanelImagePrompt(panel.scene), rawStyle: true }),
+      });
+      const data = await res.json();
+      updateComicPanel(msgId, index, { imageUrl: data.url ?? undefined, imageError: !data.url });
+    } catch {
+      updateComicPanel(msgId, index, { imageError: true });
+    }
+  }, [updateComicPanel]);
+
+  const generateComicImages = useCallback((msgId: string, comic: ParsedComic) => {
+    comic.panels.forEach((panel, i) => {
+      generateComicPanelImage(msgId, i, panel);
+    });
+  }, [generateComicPanelImage]);
+
+  const retryComicPanel = useCallback((msgId: string, index: number) => {
+    const comic = comics[msgId];
+    if (!comic) return;
+    updateComicPanel(msgId, index, { imageUrl: undefined, imageError: false });
+    generateComicPanelImage(msgId, index, comic.panels[index]);
+  }, [comics, updateComicPanel, generateComicPanelImage]);
+
+  useEffect(() => { setMounted(true); }, []);
 
   useEffect(() => {
     fetch("/api/profile")
@@ -120,14 +255,19 @@ export function ClassroomArena({ chapter, onBack }: Props) {
   }, [chapter.chapter_title]);
 
   // Sends to the dedicated classroom chat route (NOT /api/chat)
-  const sendMessage = useCallback(async (text: string) => {
+  // displayText = what to show in the bubble. Pass null to hide the user bubble entirely (tile actions).
+  const sendMessage = useCallback(async (text: string, displayText?: string | null) => {
     if (!profile || isStreaming || !text.trim()) return;
 
-    const userMsg: Message = { id: crypto.randomUUID(), role: "user",      content: text, outputType: "text", createdAt: new Date() };
     const asstId = crypto.randomUUID();
-    const asstMsg: Message = { id: asstId,             role: "assistant", content: "",   outputType: "text", isLoading: true, createdAt: new Date() };
+    const asstMsg: Message = { id: asstId, role: "assistant", content: "", outputType: "text", isLoading: true, createdAt: new Date() };
 
-    setMessages(prev => [...prev, userMsg, asstMsg]);
+    if (displayText !== null) {
+      const userMsg: Message = { id: crypto.randomUUID(), role: "user", content: displayText ?? text, outputType: "text", createdAt: new Date() };
+      setMessages(prev => [...prev, userMsg, asstMsg]);
+    } else {
+      setMessages(prev => [...prev, asstMsg]);
+    }
     setIsStreaming(true);
 
     try {
@@ -165,9 +305,10 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         }
       }
     } catch (e) {
-      console.error("[classroom/chat]", e);
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[classroom/chat]", msg);
       setMessages(prev => prev.map(m =>
-        m.id === asstId ? { ...m, content: "Sorry, something went wrong. Please try again.", isLoading: false } : m
+        m.id === asstId ? { ...m, content: `Sorry, something went wrong. Please try again.\n\n_Error: ${msg}_`, isLoading: false } : m
       ));
     } finally {
       setIsStreaming(false);
@@ -182,7 +323,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isStreaming]);
 
-  // When flashcard stream finishes, auto-open the deck overlay
+  // When flashcard stream finishes, auto-open the deck overlay and generate images
   useEffect(() => {
     if (wasStreamingRef.current && !isStreaming && pendingFlashcardRef.current) {
       pendingFlashcardRef.current = false;
@@ -192,137 +333,66 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         if (parsed.length > 0) {
           setFlashcardCards(parsed);
           setFlashcardRaw(lastAssistant.content);
+          setFlashcardsLoading(true);
+          generateFlashcardImages(parsed).then(enriched => {
+            setFlashcardCards(enriched);
+            setFlashcardsLoading(false);
+          });
         }
       }
+    }
+    // When a comic script finishes streaming, parse it, render it inline in the
+    // whiteboard, and kick off per-panel image generation.
+    if (wasStreamingRef.current && !isStreaming && pendingComicRef.current != null) {
+      pendingComicRef.current = null;
+      const lastAssistant = [...messagesRef.current].reverse().find(m => m.role === "assistant");
+      if (lastAssistant?.content) {
+        const parsed = parseComic(lastAssistant.content);
+        if (parsed.panels.length > 0) {
+          const withRaw = { ...parsed, raw: lastAssistant.content };
+          setComics(prev => ({ ...prev, [lastAssistant.id]: withRaw }));
+          generateComicImages(lastAssistant.id, withRaw);
+        }
+      }
+      setBuildingComic(null);
     }
     wasStreamingRef.current = isStreaming;
-  }, [isStreaming]);
-
-  // Persist generated audio (overview/podcast) to creations. The creations
-  // schema only allows type ∈ story|code|art|quiz|chat|mixed (no "audio") and
-  // has no file_url column, so we save as type:"chat" + output_type:"audio"
-  // with the playable URL embedded in content JSON. type:"chat" also matches
-  // the ?type=chat mount-reload filter, so saved audio reloads on return.
-  const saveAudioCreation = useCallback((title: string, content: string, kind: "audio" | "podcast") => {
-    const tempId = crypto.randomUUID();
-    const preview = kind === "podcast" ? "Podcast episode" : "Audio overview";
-    setSavedItems(prev => [
-      { id: tempId, title, preview, content, tags: ["classroom", chapter.chapter_title, kind], createdAt: Date.now() },
-      ...prev,
-    ].slice(0, 10));
-    fetch("/api/creations", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        title, type: "chat", output_type: "audio", content,
-        tags: ["classroom", chapter.chapter_title, kind],
-      }),
-    })
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data?.creation?.id) {
-          setSavedItems(prev => prev.map(item => item.id === tempId ? { ...item, id: data.creation.id } : item));
-        }
-      })
-      .catch(() => {});
-  }, [chapter.chapter_title]);
-
-  // Generates an audio overview and renders it as a chat message (loading →
-  // audio payload, or a funny off-topic quip). Declared before `send` because
-  // `send` depends on it.
-  const runOverview = useCallback(async (focus?: string) => {
-    const loadingId = crypto.randomUUID();
-    setMessages(prev => [...prev, {
-      id: loadingId, role: "assistant", outputType: "text",
-      content: "🎙️ Recording your overview…", isLoading: true, createdAt: new Date(),
-    } as ClassroomMessage]);
-    try {
-      const r = await fetch("/api/classroom/audio-overview", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chapterTitle: chapter.chapter_title, focus }),
-      });
-      if (!r.ok) throw new Error("bad status");
-      const data = await r.json();
-
-      if (data.offTopic) {
-        setMessages(prev => prev.map(m => m.id === loadingId
-          ? { ...m, content: data.quip, isLoading: false } : m));
-        return;
-      }
-
-      const payload: AudioOverviewPayload = {
-        audioUrl: data.audioUrl, title: data.title, script: data.script,
-        words: data.words ?? [], formulas: data.formulas ?? [], keyPoints: data.keyPoints ?? [],
-        table: data.table ?? null,
-      };
-      setMessages(prev => prev.map(m => m.id === loadingId
-        ? ({ ...m, content: data.title, isLoading: false, outputType: "audio", audioOverview: payload } as ClassroomMessage)
-        : m));
-      saveAudioCreation(data.title, JSON.stringify({ audioUrl: data.audioUrl, script: data.script }), "audio");
-    } catch {
-      setMessages(prev => prev.map(m => m.id === loadingId
-        ? { ...m, content: "Couldn't make your overview — please try again.", isLoading: false } : m));
-    }
-  }, [chapter.chapter_title, saveAudioCreation]);
+  }, [isStreaming, generateFlashcardImages, generateComicImages]);
 
   const send = useCallback(async (text: string) => {
     const t = text.trim();
     if (!t || !profile || isStreaming) return;
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
-    if (audioOverviewMode) {
-      // Sticky: every message is an overview until the student exits the mode.
-      setMessages(prev => [...prev, {
-        id: crypto.randomUUID(), role: "user", outputType: "text",
-        content: t, createdAt: new Date(),
-      } as ClassroomMessage]);
-      await runOverview(t);
+    if (mode === "comic") {
+      // Comic is a special visual mode — build the script prompt with the chosen
+      // panel count, flag it pending so the stream-complete effect renders it.
+      pendingComicRef.current = comicPanelCount;
+      setBuildingComic({ count: comicPanelCount });
+      await sendMessage(buildComicPrompt(t, comicPanelCount), t);
       return;
     }
-    await sendMessage(t);
-  }, [profile, isStreaming, sendMessage, audioOverviewMode, runOverview]);
-
-  const runPodcast = useCallback(async (topic: string) => {
-    setPodcastProgress({ stage: "persona" });
-    try {
-      const r = await fetch("/api/classroom/podcast", {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ topic, chapterTitle: chapter.chapter_title }),
-      });
-      if (!r.body) { setPodcastProgress({ stage: "error", message: "No response" }); return; }
-      const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
-      while (true) {
-        const { done, value } = await reader.read(); if (done) break;
-        buf += dec.decode(value, { stream: true });
-        const frames = buf.split("\n\n"); buf = frames.pop() ?? "";
-        for (const f of frames) {
-          const line = f.trim(); if (!line.startsWith("data:")) continue;
-          const evt = JSON.parse(line.slice(5).trim());
-          if (evt.stage === "done") {
-            setPodcast(evt as PodcastResult); setPodcastProgress(null);
-            saveAudioCreation(evt.title, JSON.stringify({ audioUrl: evt.audioUrl, transcript: evt.transcript, persona: evt.persona }), "podcast");
-          }
-          else setPodcastProgress(evt as LoadProgress);
-        }
-      }
-    } catch (e) {
-      setPodcastProgress({ stage: "error", message: (e as Error).message });
+    const buildPrompt = TILE_PROMPTS[mode];
+    if (buildPrompt) {
+      if (mode === "flashcards") pendingFlashcardRef.current = true;
+      // Show user's typed text in the bubble; send the structured prompt to the API
+      await sendMessage(buildPrompt(t), t);
+    } else {
+      await sendMessage(t);
     }
-  }, [chapter.chapter_title, saveAudioCreation]);
+  }, [profile, isStreaming, sendMessage, mode, comicPanelCount]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
   };
 
   const handleTileClick = useCallback((key: string) => {
-    if (!profile || isStreaming) return;
-    const buildPrompt = TILE_PROMPTS[key];
-    if (!buildPrompt) return;
-    if (key === "flashcards") pendingFlashcardRef.current = true;
-    setActiveHint(key);
-    setTimeout(() => setActiveHint(null), 900);
-    sendMessage(buildPrompt(chapter.chapter_title));
-  }, [profile, isStreaming, sendMessage, chapter.chapter_title]);
+    if (isStreaming) return;
+    if (!TILE_PROMPTS[key] && key !== "explainer" && key !== "comic") return;
+    setMode(key);
+    // Focus the input so user can type their topic immediately
+    setTimeout(() => taRef.current?.focus(), 50);
+  }, [isStreaming]);
 
   // Called by MessageBubble's save button → adds thumbnail + persists to creations
   const handleSave = useCallback((content: string, outputType: OutputType) => {
@@ -332,13 +402,14 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       : content.replace(/[#*`_]/g, "").slice(0, 50).trim() || chapter.chapter_title;
     const preview = content.replace(/^#{1,3}\s+.+$/m, "").replace(/[#*`_]/g, "").trim().slice(0, 60);
     const tempId = crypto.randomUUID();
-    setSavedItems(prev => [{ id: tempId, title, preview, content, tags: ["classroom", chapter.chapter_title], createdAt: Date.now() }, ...prev].slice(0, 10));
+    const saveTags = ["classroom", chapter.chapter_title, mode];
+    setSavedItems(prev => [{ id: tempId, title, preview, content, tags: saveTags, createdAt: Date.now() }, ...prev].slice(0, 10));
     fetch("/api/creations", {
       method:  "POST",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({
         title, type:"chat", output_type: outputType, content,
-        tags: ["classroom", chapter.chapter_title],
+        tags: saveTags,
       }),
     })
       .then(r => r.ok ? r.json() : null)
@@ -351,22 +422,25 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         }
       })
       .catch(() => {});
-  }, [chapter.chapter_title]);
+  }, [chapter.chapter_title, mode]);
 
   const handleFlashcardSave = useCallback((content: string) => {
     const count = flashcardCards?.length ?? 10;
     const title = `Flashcards: ${chapter.chapter_title}`;
     const preview = `${count} flashcard${count !== 1 ? "s" : ""}`;
+    const contentWithImages = flashcardCards
+      ? content + "\n\n__images__:" + JSON.stringify(flashcardCards.map(c => c.imageUrl ?? null))
+      : content;
     const tempId = crypto.randomUUID();
     setSavedItems(prev => [
-      { id: tempId, title, preview, content, tags: ["classroom", chapter.chapter_title, "flashcards"], createdAt: Date.now() },
+      { id: tempId, title, preview, content: contentWithImages, tags: ["classroom", chapter.chapter_title, "flashcards"], createdAt: Date.now() },
       ...prev,
     ].slice(0, 10));
     fetch("/api/creations", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        title, type: "chat", output_type: "text", content,
+        title, type: "chat", output_type: "text", content: contentWithImages,
         tags: ["classroom", chapter.chapter_title, "flashcards"],
       }),
     })
@@ -379,7 +453,51 @@ export function ClassroomArena({ chapter, onBack }: Props) {
       .catch(() => {});
   }, [chapter.chapter_title, flashcardCards]);
 
-  const canSend = input.trim().length > 0 && !isStreaming && !!profile;
+  const handleComicSave = useCallback((msgId: string) => {
+    const comic = comics[msgId];
+    if (!comic) return;
+    const count = comic.panels.length;
+    const title = comic.title?.trim() ? `Comic: ${comic.title.trim()}` : `Comic: ${chapter.chapter_title}`;
+    const preview = `${count} panel${count !== 1 ? "s" : ""}`;
+    // Embed panel image URLs the same way flashcards do, so reopen can restore them.
+    const base = comic.raw ?? "";
+    const contentWithImages = base + "\n\n__images__:" + JSON.stringify(comic.panels.map(p => p.imageUrl ?? null));
+    const tempId = crypto.randomUUID();
+    setSavedItems(prev => [
+      { id: tempId, title, preview, content: contentWithImages, tags: ["classroom", chapter.chapter_title, "comic"], createdAt: Date.now() },
+      ...prev,
+    ].slice(0, 10));
+    fetch("/api/creations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title, type: "chat", output_type: "text", content: contentWithImages,
+        tags: ["classroom", chapter.chapter_title, "comic"],
+      }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.creation?.id) {
+          setSavedItems(prev => prev.map(item => item.id === tempId ? { ...item, id: data.creation.id } : item));
+        }
+      })
+      .catch(() => {});
+  }, [chapter.chapter_title, comics]);
+
+  const handleRetryImages = useCallback(async (indices: number[]) => {
+    if (!flashcardCards) return;
+    const updated = [...flashcardCards];
+    indices.forEach(i => { updated[i] = { ...updated[i], imageUrl: undefined, imageError: false }; });
+    setFlashcardCards([...updated]);
+    const enriched = await generateFlashcardImages(indices.map(i => updated[i]));
+    const final = [...updated];
+    indices.forEach((cardIdx, i) => { final[cardIdx] = enriched[i]; });
+    setFlashcardCards([...final]);
+  }, [flashcardCards, generateFlashcardImages]);
+
+  const canSend    = input.trim().length > 0 && !isStreaming && !!profile;
+  const tileAccent = TILE_ACCENTS[mode] ?? ACCENT;
+  const tileLabel  = TILES.find(t => t.key === mode)?.label ?? "this chapter";
 
   if (!profile) {
     return (
@@ -412,86 +530,26 @@ export function ClassroomArena({ chapter, onBack }: Props) {
         <ChevronLeft className="w-3.5 h-3.5" /> Back
       </button>
 
-      {/* ── Chapter title — bigger, centered top ─────────────────────────────── */}
-      <div className="absolute flex flex-col items-center"
-        style={{ top:10, left:"50%", transform:"translateX(-50%)", zIndex:25 }}>
-        <div className="px-5 py-2 rounded-2xl"
-          style={{ background:"rgba(0,0,0,0.55)", backdropFilter:"blur(12px)",
-            border:"1px solid rgba(255,255,255,0.15)" }}>
-          <p className="font-display font-black text-base whitespace-nowrap"
-            style={{ color:"#fff", letterSpacing:"0.01em" }}>
-            {chapter.chapter_title}
-          </p>
-          <p className="text-[11px] font-mono text-center mt-0.5" style={{ color:"rgba(255,255,255,0.45)" }}>
-            CBSE Class 10 · Science
-          </p>
-        </div>
-      </div>
 
-      {/* ── Toolbar hotspot: Notes (invisible clickable zone) ────────────────── */}
-      <div
-        onClick={() => { setAudioOverviewMode(false); setMode("notes"); }}
-        className="absolute"
-        style={{ left:"0", top:"10%", width:"10%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
-
-      {/* ── Toolbar hotspot: Flashcards (invisible clickable zone) ───────────── */}
-      <div
-        onClick={() => { setAudioOverviewMode(false); setMode("notes"); handleTileClick("flashcards"); }}
-        className="absolute"
-        style={{ left:"0", top:"21%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
-
-      {/* ── Toolbar hotspot: Explainer Videos (invisible clickable zone) ─────── */}
-      <div
-        onClick={() => { setAudioOverviewMode(false); setMode("videos"); }}
-        className="absolute"
-        style={{ left:0, top:"45%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
-
-      {/* ── Toolbar hotspot: Audio Overview (toggles sticky overview mode) ───── */}
-      <div
-        onClick={() => {
-          if (isStreaming) return;
-          if (audioOverviewMode) {
-            setAudioOverviewMode(false);
-            setMessages(prev => [...prev, {
-              id: crypto.randomUUID(), role: "assistant", outputType: "text",
-              content: "✅ Exited Audio Overview mode — back to normal chat.",
-              createdAt: new Date(),
-            } as ClassroomMessage]);
-            return;
-          }
-          setMode("notes");
-          setAudioOverviewMode(true);
-          setMessages(prev => [...prev, {
-            id: crypto.randomUUID(), role: "assistant", outputType: "text",
-            content: `🎧 **Audio Overview mode is ON.** Every message becomes an overview of *${chapter.chapter_title}* — the whole chapter, or any subtopic. (This chapter only 😄) Tap Audio Overview again to exit.`,
-            createdAt: new Date(),
-          } as ClassroomMessage]);
-        }}
-        className="absolute"
-        style={{ left:0, top:"66%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
-
-      {/* ── Active-mode glow over the Audio Overview tile ───────────────────── */}
-      {audioOverviewMode && (
-        <motion.div
-          className="absolute pointer-events-none"
-          style={{ left:0, top:"66%", width:"13%", height:"8.5%", zIndex:19, borderRadius:12,
-            border:"1.5px solid rgba(200,168,75,0.9)",
-            boxShadow:"0 0 18px rgba(200,168,75,0.65), inset 0 0 14px rgba(200,168,75,0.35)" }}
-          animate={{ opacity:[0.45,1,0.45] }}
-          transition={{ duration:1.6, repeat:Infinity, ease:"easeInOut" }}
-        />
+      {/* Tile click zones — rendered via React Portal into document.body so   */}
+      {/* they live outside every stacking context in the layout tree.         */}
+      {mounted && createPortal(
+        TILES.map(tile => (
+          <div
+            key={tile.key}
+            style={{
+              position: "fixed",
+              left: tile.left, top: tile.top, width: tile.width, height: tile.height,
+              zIndex: 9999, cursor: "pointer",
+            }}
+            onClick={() => {
+              setMode(tile.key);
+              if (tile.key !== "explainer") handleTileClick(tile.key);
+            }}
+          />
+        )),
+        document.body
       )}
-
-      {/* ── Toolbar hotspot: Audio Podcast (invisible clickable zone) ────────── */}
-      <div
-        onClick={() => { setAudioOverviewMode(false); runPodcast(input.trim() || chapter.chapter_title); setInput(""); }}
-        className="absolute"
-        style={{ left:0, top:"77%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
-      />
 
       {/* ── My Creations / Videos panel — overlaid on left wall panel ─────────── */}
       <div className="absolute overflow-y-auto"
@@ -500,65 +558,136 @@ export function ClassroomArena({ chapter, onBack }: Props) {
 
         <AnimatePresence mode="wait">
 
-          {/* ── NOTES mode ── */}
-          {mode === "notes" && (
+          {/* ── All content modes (notes, flashcards, mindmap, comic, audio, podcast) ── */}
+          {mode !== "explainer" && (
             <motion.div key="notes-panel"
               initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
               transition={{ duration:0.18 }}>
-              <AnimatePresence>
-                {savedItems.map((item) => {
-                  const isFC = item.tags.includes("flashcards");
-                  return (
-                    <div key={item.id} draggable
-                      onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
-                        e.dataTransfer.setData("application/classroom-item", item.id);
-                        e.dataTransfer.effectAllowed = "move";
-                      }}>
-                      <motion.div
-                        initial={{ opacity:0, y:-8, scale:0.95 }}
-                        animate={{ opacity:1, y:0,  scale:1 }}
-                        transition={{ duration:0.25 }}
-                        onClick={() => {
-                          if (isFC) {
-                            const parsed = parseFlashcards(item.content);
-                            if (parsed.length > 0) { setFlashcardCards(parsed); setFlashcardRaw(item.content); }
-                          } else {
-                            setViewingItem(item);
-                          }
-                        }}
-                        className="rounded-xl p-3 mb-2 cursor-grab"
-                        whileHover={{ scale:1.02, boxShadow: isFC ? "0 4px 16px rgba(124,58,237,0.25)" : "0 4px 16px rgba(37,99,235,0.2)" }}
-                        style={{ background:"rgba(255,255,255,0.88)",
-                          border: `1px solid ${isFC ? "rgba(124,58,237,0.25)" : "rgba(37,99,235,0.2)"}`,
-                          boxShadow:"0 2px 12px rgba(15,28,77,0.1)" }}>
-                        <div className="w-full h-1 rounded-full mb-2"
-                          style={{ background: isFC ? "#7C3AED" : "linear-gradient(90deg,#2563eb,#7c3aed)" }} />
-                        {isFC && (
-                          <p className="text-[9px] font-mono uppercase tracking-widest mb-1"
-                            style={{ color:"rgba(124,58,237,0.7)" }}>
-                            ⚡ {item.preview}
+              <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:6 }}>
+                <AnimatePresence>
+                  {savedItems.filter(item => item.tags.includes(mode)).map((item, idx) => {
+                    const isFC    = item.tags.includes("flashcards");
+                    const isComic = item.tags.includes("comic");
+                    const tileKey      = item.tags.find(t => TILE_PNGS[t]) ?? "notes";
+                    const itemAccent   = TILE_ACCENTS[tileKey] ?? ACCENT;
+                    // For comics, use the first generated panel as the card thumbnail.
+                    const comicThumb = isComic ? (() => {
+                      const m = item.content.match(/__images__:(\[[\s\S]*?\])/);
+                      if (!m) return null;
+                      try {
+                        const urls = JSON.parse(m[1]) as (string | null)[];
+                        return urls.find(u => !!u) ?? null;
+                      } catch { return null; }
+                    })() : null;
+                    return (
+                      <div key={item.id} draggable
+                        onDragStart={(e: React.DragEvent<HTMLDivElement>) => {
+                          e.dataTransfer.setData("application/classroom-item", item.id);
+                          e.dataTransfer.effectAllowed = "move";
+                        }}>
+                        <motion.div
+                          initial={{ opacity:0, y:-8, scale:0.95 }}
+                          animate={{ opacity:1, y:0,  scale:1 }}
+                          transition={{ duration:0.25, delay: Math.min(idx * 0.04, 0.2) }}
+                          onClick={() => {
+                            if (isFC) {
+                              const parsed = parseFlashcards(item.content);
+                              const imgMatch = item.content.match(/__images__:(\[[\s\S]*?\])/);
+                              if (imgMatch) {
+                                try {
+                                  const urls: (string|null)[] = JSON.parse(imgMatch[1]);
+                                  urls.forEach((url, i) => { if (url && parsed[i]) parsed[i].imageUrl = url; });
+                                } catch { /* ignore json parse errors */ }
+                              }
+                              if (parsed.length > 0) { setFlashcardCards(parsed); setFlashcardRaw(item.content); }
+                            } else if (isComic) {
+                              const parsed = parseComic(item.content);
+                              const imgMatch = item.content.match(/__images__:(\[[\s\S]*?\])/);
+                              if (imgMatch) {
+                                try {
+                                  const urls: (string|null)[] = JSON.parse(imgMatch[1]);
+                                  urls.forEach((url, i) => { if (url && parsed.panels[i]) parsed.panels[i].imageUrl = url; });
+                                } catch { /* ignore json parse errors */ }
+                              }
+                              if (parsed.panels.length > 0) setViewingComic({ ...parsed, raw: item.content });
+                            } else {
+                              setViewingItem(item);
+                            }
+                          }}
+                          className="cursor-grab"
+                          whileHover={{ scale:1.04, boxShadow: `0 6px 20px ${itemAccent}45` }}
+                          style={{ borderRadius:10,
+                            background:"rgba(255,255,255,0.95)",
+                            border:`1px solid ${itemAccent}35`,
+                            boxShadow:"0 2px 8px rgba(15,28,77,0.09)",
+                            overflow:"hidden",
+                            display:"flex", flexDirection:"column",
+                            alignItems:"center", justifyContent:"flex-start", padding:"10px 7px 9px",
+                            // Every saved card (all tile types) uses one fixed height so the
+                            // grid stays perfectly even regardless of title length.
+                            height: 104,
+                            textAlign:"center", gap:0 }}>
+                          {/* Icon slot — comic with real panel uses that image; all others
+                              try the tile PNG and fall back to an emoji if the file is missing. */}
+                          {isComic && comicThumb ? (
+                            <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
+                              flexShrink:0, marginBottom:6, display:"block",
+                              border:`1px solid ${itemAccent}55` }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={comicThumb} alt={item.title}
+                                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }} />
+                            </span>
+                          ) : (
+                            <span style={{ width:26, height:26, borderRadius:6, overflow:"hidden",
+                              flexShrink:0, marginBottom:6, display:"flex",
+                              alignItems:"center", justifyContent:"center",
+                              border:`1px solid ${itemAccent}55`,
+                              background:`${itemAccent}15` }}>
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={TILE_PNGS[tileKey]} alt={tileKey}
+                                style={{ width:"100%", height:"100%", objectFit:"cover", display:"block" }}
+                                onError={(e) => {
+                                  e.currentTarget.style.display = "none";
+                                  const sib = e.currentTarget.nextSibling as HTMLElement | null;
+                                  if (sib) sib.style.display = "flex";
+                                }} />
+                              <span style={{ display:"none", width:"100%", height:"100%",
+                                alignItems:"center", justifyContent:"center", fontSize:14 }}>
+                                {TILE_EMOJIS[tileKey] ?? "📝"}
+                              </span>
+                            </span>
+                          )}
+                          <div style={{ width:"72%", height:2, borderRadius:2,
+                            background: itemAccent,
+                            marginBottom:6, flexShrink:0 }} />
+                          {isFC && (
+                            <p style={{ fontSize:9, fontFamily:"monospace", textTransform:"uppercase",
+                              letterSpacing:"0.08em", color:"rgba(124,58,237,0.7)", marginBottom:3 }}>
+                              ⚡ {item.preview}
+                            </p>
+                          )}
+                          <p style={{ fontSize:10, fontWeight:700, color:"#0f1c4d",
+                            lineHeight:1.3, display:"-webkit-box", WebkitLineClamp: 2,
+                            WebkitBoxOrient:"vertical", overflow:"hidden",
+                            wordBreak:"break-word" }}>
+                            {item.title}
                           </p>
-                        )}
-                        <p className="text-xs font-bold leading-snug"
-                          style={{ color:"#0f1c4d", display:"-webkit-box",
-                            WebkitLineClamp: isFC ? 2 : 3, WebkitBoxOrient:"vertical", overflow:"hidden" }}>
-                          {item.title}
-                        </p>
-                      </motion.div>
-                    </div>
-                  );
-                })}
-              </AnimatePresence>
-              {savedItems.length === 0 && (
+                        </motion.div>
+                      </div>
+                    );
+                  })}
+                </AnimatePresence>
+              </div>
+              {savedItems.filter(item => item.tags.includes(mode)).length === 0 && (
                 <p className="text-[10px] text-center pt-3 opacity-30" style={{ color:"#0f1c4d" }}>
-                  Saved items<br/>appear here
+                  Saved {tileLabel.toLowerCase()}<br/>appear here
                 </p>
               )}
             </motion.div>
           )}
 
-          {/* ── VIDEOS mode ── */}
-          {mode === "videos" && (
+          {/* ── EXPLAINER VIDEOS mode ── */}
+          {mode === "explainer" && (
             <motion.div key="videos-panel"
               initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
               transition={{ duration:0.18 }}>
@@ -731,10 +860,51 @@ export function ClassroomArena({ chapter, onBack }: Props) {
           font-weight: 700;
         }
       `}</style>
+      {/* ── Chat overlay — transparent bg, floats on whiteboard ────────────── */}
       <div className="absolute flex flex-col classroom-chat"
-        style={{ left:"36%", top:"10%", width:"60%", height:"70%", zIndex:15 }}>
+        style={{ left:"36%", top:"7%", width:"60%", height:"70%", zIndex:15 }}>
 
-        {/* Message list — no background, messages float on the whiteboard */}
+        {/* Chapter pill — full width with rounded ends */}
+        <div className="flex-shrink-0" style={{ padding: "10px 0 2px" }}>
+          <div style={{
+            width: "100%", display: "flex", alignItems: "center", gap: 8,
+            padding: "6px 16px",
+            borderRadius: 40,
+            background: "rgba(255,255,255,0.92)",
+            border: "1px solid rgba(37,99,235,0.22)",
+            boxShadow: "0 2px 12px rgba(37,99,235,0.10)",
+            backdropFilter: "blur(20px)",
+          }}>
+            <span style={{
+              width: 6, height: 6, borderRadius: "50%", flexShrink: 0,
+              background: "#2563eb", boxShadow: "0 0 6px #2563eb",
+            }}/>
+            <span style={{
+              fontSize: 8, fontWeight: 800, letterSpacing: "0.12em",
+              color: "#2563eb", textTransform: "uppercase",
+              fontFamily: "'Syne', sans-serif", flexShrink: 0,
+            }}>CHAPTER</span>
+            <div style={{ width: 1, height: 12, background: "rgba(0,0,0,0.12)", flexShrink: 0 }}/>
+            <span style={{
+              flex: 1, fontSize: 11, fontWeight: 700,
+              color: "#0a0a2e",
+              whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+              fontFamily: "'DM Sans', sans-serif",
+            }}>{chapter.chapter_title}</span>
+            {TILES.some(t => t.key === mode) && (
+              <span style={{
+                fontSize: 9, fontWeight: 700, letterSpacing: "0.08em",
+                color: tileAccent, textTransform: "uppercase",
+                fontFamily: "'Syne', sans-serif",
+                background: `${tileAccent}18`,
+                border: `1px solid ${tileAccent}40`,
+                borderRadius: 20, padding: "2px 8px", flexShrink: 0,
+              }}>{tileLabel}</span>
+            )}
+          </div>
+        </div>
+
+        {/* Message list */}
         <div className="flex-1 min-h-0 overflow-y-auto"
           style={{ padding:"12px 14px 6px", display:"flex", flexDirection:"column",
             gap:8, scrollbarWidth:"none" }}>
@@ -750,12 +920,25 @@ export function ClassroomArena({ chapter, onBack }: Props) {
           )}
 
           {messages.map(msg => {
-            if (msg.audioOverview) {
+            // Rendered comic replaces the raw script bubble in the whiteboard.
+            const comic = comics[msg.id];
+            if (comic) {
               return (
-                <div key={msg.id} className="flex justify-start">
-                  <AudioOverviewMessage payload={msg.audioOverview} />
+                <div key={msg.id} style={{ padding: "2px 0" }}>
+                  <ComicStrip
+                    data={comic}
+                    accent={TILE_ACCENTS.comic}
+                    onSave={() => handleComicSave(msg.id)}
+                    onRetryPanel={(i) => retryComicPanel(msg.id, i)}
+                  />
                 </div>
               );
+            }
+            // While the comic script is still streaming, show the skeleton (not raw text).
+            const isBuilding = !!buildingComic && msg.role === "assistant"
+              && msg === messages[messages.length - 1];
+            if (isBuilding) {
+              return <ComicBuildingSkeleton key={msg.id} count={buildingComic!.count} accent={TILE_ACCENTS.comic} />;
             }
             return (
               <MessageBubble
@@ -771,8 +954,7 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             );
           })}
 
-          {/* Streaming dots */}
-          {isStreaming && (
+          {isStreaming && !buildingComic && (
             <div style={{ display:"flex", gap:4, padding:"2px 0 2px 28px" }}>
               {[0,1,2].map(i => (
                 <span key={i} className="dot"
@@ -785,46 +967,39 @@ export function ClassroomArena({ chapter, onBack }: Props) {
           <div ref={bottomRef} />
         </div>
 
-        {/* ── Audio Overview active chip ─────────────────────────────────────── */}
-        {audioOverviewMode && (
-          <div style={{ flexShrink:0, padding:"0 4px 6px" }}>
-            <motion.div
-              initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }}
-              className="flex items-center gap-2 px-3 py-1.5 rounded-full w-fit"
-              style={{ background:"linear-gradient(180deg, rgba(200,168,75,0.22), rgba(200,168,75,0.10))",
-                border:"1px solid rgba(200,168,75,0.55)",
-                boxShadow:"0 0 16px rgba(200,168,75,0.35)" }}>
-              <motion.span style={{ width:7, height:7, borderRadius:"50%", background:"#C8A84B", display:"inline-block" }}
-                animate={{ opacity:[0.4,1,0.4] }} transition={{ duration:1.4, repeat:Infinity }} />
-              <span className="text-xs font-semibold" style={{ color:"#F4E4B8" }}>
-                🎧 Audio Overview ON — every message becomes an overview
-              </span>
-              <button
-                onClick={() => {
-                  setAudioOverviewMode(false);
-                  setMessages(prev => [...prev, {
-                    id: crypto.randomUUID(), role: "assistant", outputType: "text",
-                    content: "✅ Exited Audio Overview mode — back to normal chat.",
-                    createdAt: new Date(),
-                  } as ClassroomMessage]);
-                }}
-                className="text-xs font-bold ml-1 px-2 py-0.5 rounded-full hover:opacity-80"
-                style={{ background:"rgba(200,168,75,0.85)", color:"#1a1206" }}>
-                Exit
-              </button>
-            </motion.div>
-          </div>
-        )}
-
-        {/* ── Input bar — dark pill, Creator's Room style ────────────────────── */}
+        {/* Prompt bar */}
         <div style={{ flexShrink:0, padding:"0 4px 8px" }}>
+          {/* Comic panel-count chips — only in comic mode */}
+          {mode === "comic" && (
+            <div style={{ display:"flex", alignItems:"center", gap:6, padding:"0 2px 7px" }}>
+              <span style={{ fontSize:9, fontWeight:800, letterSpacing:"0.1em",
+                textTransform:"uppercase", color:tileAccent,
+                fontFamily:"'JetBrains Mono',monospace" }}>Panels</span>
+              {([3,4,5] as const).map(n => {
+                const active = comicPanelCount === n;
+                return (
+                  <button key={n} onClick={() => setComicPanelCount(n)}
+                    style={{ width:30, height:26, borderRadius:9, flexShrink:0,
+                      fontSize:13, fontWeight:800, cursor:"pointer",
+                      fontFamily:"'Syne',sans-serif",
+                      background: active ? tileAccent : "rgba(255,255,255,0.85)",
+                      color: active ? "#fff" : "#0f1c4d",
+                      border: active ? "none" : `1.5px solid ${tileAccent}40`,
+                      boxShadow: active ? `0 2px 10px ${tileAccent}66` : "0 1px 4px rgba(15,28,77,0.12)",
+                      transition:"all 0.18s ease" }}>
+                    {n}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           <div style={{ display:"flex", alignItems:"center", gap:8,
             background:"linear-gradient(180deg, rgba(18,28,72,0.92) 0%, rgba(10,16,52,0.95) 100%)",
             backdropFilter:"blur(24px)",
             borderRadius:16, padding:"10px 12px",
-            border:"1px solid rgba(100,140,255,0.25)",
-            boxShadow:"0 0 0 1px rgba(100,140,255,0.08), 0 4px 24px rgba(0,0,50,0.4), inset 0 1px 0 rgba(255,255,255,0.1)" }}>
-
+            border:`2px solid ${tileAccent}`,
+            transition:"border-color 0.3s ease, box-shadow 0.3s ease",
+            boxShadow:`0 0 0 1px ${tileAccent}30, 0 4px 24px rgba(0,0,50,0.4), 0 0 20px ${tileAccent}25, inset 0 1px 0 rgba(255,255,255,0.1)` }}>
             <textarea
               ref={taRef}
               value={input}
@@ -835,25 +1010,22 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                 t.style.height = Math.min(t.scrollHeight, 80) + "px";
               }}
               onKeyDown={handleKey}
-              placeholder={audioOverviewMode
-                ? "Overview mode — type the whole chapter or any subtopic…"
-                : `Ask about ${chapter.chapter_title}…`}
+              placeholder={mode === "comic" ? "Type a topic for your comic…" : mode !== "notes" && TILE_PROMPTS[mode] ? `Type a topic for ${TILES.find(t => t.key === mode)?.label ?? mode}…` : "Ask anything about this chapter…"}
               rows={1}
               disabled={!profile}
               style={{ flex:1, resize:"none", border:"none", outline:"none",
                 background:"transparent", fontSize:15, fontWeight:500,
                 color:"rgba(255,255,255,0.92)", fontFamily:"inherit",
                 lineHeight:1.5, overflowY:"hidden",
-                caretColor:ACCENT, userSelect:"text" }}
+                caretColor:tileAccent, userSelect:"text" }}
             />
-
             <button onClick={() => send(input)} disabled={!canSend}
               style={{ width:34, height:34, borderRadius:"50%", flexShrink:0,
-                background: canSend ? `rgba(37,99,235,0.9)` : "rgba(255,255,255,0.08)",
+                background: canSend ? tileAccent : "rgba(255,255,255,0.08)",
                 border:"none", cursor: canSend ? "pointer" : "not-allowed",
                 display:"flex", alignItems:"center", justifyContent:"center",
-                transition:"all 0.2s",
-                boxShadow: canSend ? `0 0 16px rgba(37,99,235,0.6)` : "none" }}>
+                transition:"all 0.3s ease",
+                boxShadow: canSend ? `0 0 16px ${tileAccent}99` : "none" }}>
               <svg width="13" height="13" viewBox="0 0 18 18" fill="none">
                 <path d="M2 9h14M9 2l7 7-7 7"
                   stroke={canSend ? "#fff" : "rgba(255,255,255,0.2)"}
@@ -927,16 +1099,51 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             cards={flashcardCards}
             rawContent={flashcardRaw}
             chapterTitle={chapter.chapter_title}
+            isLoadingImages={flashcardsLoading}
             onClose={() => setFlashcardCards(null)}
             onSave={handleFlashcardSave}
+            onRetryImages={handleRetryImages}
           />
         )}
       </AnimatePresence>
 
-      {/* ── Audio Overview now renders as an in-chat message (AudioOverviewMessage).
-             Podcast overlays remain below. ──────────────────────────────────── */}
-      {podcastProgress && <PodcastLoading progress={podcastProgress} />}
-      {podcast && <PodcastPlayer result={podcast} onClose={() => setPodcast(null)} />}
+      {/* ── Comic viewer overlay (reopened from My Creations) ──────────────────── */}
+      <AnimatePresence>
+        {viewingComic && (
+          <motion.div
+            initial={{ opacity:0 }} animate={{ opacity:1 }} exit={{ opacity:0 }}
+            className="absolute inset-0 flex items-center justify-center"
+            style={{ zIndex:55, background:"rgba(5,8,25,0.85)", backdropFilter:"blur(10px)" }}
+            onClick={() => setViewingComic(null)}
+          >
+            <motion.div
+              initial={{ opacity:0, scale:0.95, y:12 }}
+              animate={{ opacity:1, scale:1, y:0 }}
+              exit={{ opacity:0, scale:0.95, y:12 }}
+              transition={{ duration:0.22 }}
+              onClick={e => e.stopPropagation()}
+              className="flex flex-col"
+              style={{ width:"min(560px,82vw)", maxHeight:"86vh",
+                background:"rgba(255,255,255,0.97)", borderRadius:20, overflow:"hidden",
+                boxShadow:"0 24px 64px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.9)" }}
+            >
+              <div className="flex-shrink-0 flex items-center gap-3 px-5 py-3.5"
+                style={{ borderBottom:"1px solid rgba(236,72,153,0.12)" }}>
+                <span className="text-base">💥</span>
+                <p className="flex-1 font-display font-bold text-sm truncate" style={{ color:"#0f1c4d" }}>
+                  Comic · {chapter.chapter_title}
+                </p>
+                <button onClick={() => setViewingComic(null)}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-lg transition-colors hover:bg-gray-100"
+                  style={{ color:"rgba(15,28,77,0.4)", lineHeight:1 }}>×</button>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto px-5 py-4" style={{ scrollbarWidth:"thin" }}>
+                <ComicStrip data={viewingComic} accent={TILE_ACCENTS.comic} saved />
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* ── Saved item viewer modal ─────────────────────────────────────────── */}
       <AnimatePresence>

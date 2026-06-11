@@ -7,6 +7,9 @@ import { ChevronLeft, ChevronRight, X, RotateCcw } from "lucide-react";
 export interface FlashCard {
   question: string;
   answer: string;
+  imagePrompt?: string;
+  imageUrl?: string;
+  imageError?: boolean;
 }
 
 export function parseFlashcards(markdown: string): FlashCard[] {
@@ -38,11 +41,13 @@ interface Props {
   cards: FlashCard[];
   rawContent: string;
   chapterTitle: string;
+  isLoadingImages?: boolean;
   onClose: () => void;
   onSave: (content: string) => void;
+  onRetryImages?: (indices: number[]) => void;
 }
 
-export function FlashcardDeck({ cards, rawContent, chapterTitle, onClose, onSave }: Props) {
+export function FlashcardDeck({ cards, rawContent, chapterTitle, isLoadingImages, onClose, onSave, onRetryImages }: Props) {
   const [idx,      setIdx]      = useState(0);
   const [isFlipped, setFlipped] = useState(false);
   const [dir,      setDir]      = useState(1);
