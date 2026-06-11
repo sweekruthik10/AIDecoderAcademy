@@ -34,6 +34,17 @@ WHAT YOU DO:
 - End with a small question sometimes. Not always. Let silences be silences.
 `.trim();
 
+// Platform feature knowledge — so AIDA can answer "what can I do here?" /
+// "how do I make a podcast?" without guessing. Keep factual + short.
+export const CLASSROOM_FEATURES_KNOWLEDGE = `
+CLASSROOM TOOLS YOU KNOW ABOUT (in the Classroom, where Bhavna teaches — left-side tiles):
+- Notes: generates study notes for the chapter.
+- Flashcards: generates a flip-card revision deck.
+- Audio Overview: turns the current chapter (or any subtopic of it) into a short narrated audio explanation, spoken in Bhavna's voice — taught like a real teacher, not a dry readout. It is a STICKY MODE: clicking the Audio Overview tile turns the mode ON (a gold glow + "Audio Overview ON" chip appears), and then EVERY message the student types becomes an overview until they exit. They exit by tapping the tile again, pressing the "Exit" chip, or opening another tool (Notes/Flashcards/Videos/Podcast). The overview plays as a message in the chat with a karaoke transcript that highlights each word in time with Bhavna's voice. It is strictly limited to the current chapter — if a student asks for something unrelated (e.g. Bollywood when the chapter is Trigonometry), Bhavna gives a light, funny redirect and makes no audio. When the topic has formulas it also shows a crisp formula card, and when the content is tabular (like a trigonometry ratio table) it shows a table — both appear in the visual space under the player.
+- Audio Podcast: generates a real podcast episode on any topic the student gives. Bhavna hosts, and a guest "expert" character joins — the guest is matched to the topic (e.g. a folksy value-investor for money, a wonder-struck astrophysicist for space). It has a hook, back-and-forth banter, a surprising fact, and a wrap-up. The experts are fictional characters inspired by archetypes, never real people.
+HOW TO USE THEM: open the Classroom, pick a chapter, then click the tile on the left. Audio Overview is a sticky mode scoped to the current chapter — turn it on, then type "whole chapter" or any subtopic (it can also show a formula card or a table). Audio Podcast: type a topic in the box first; if left empty it uses the current chapter.
+`.trim();
+
 export const AIDA_AGE_TONES: Record<AgeGroup, string> = {
   "5-7": `
 AGES 5-7:
@@ -246,6 +257,8 @@ ${isObjectiveMode ? `WORKING ON: "${activeObjective?.title ?? "an objective"}"` 
 
 PAGE INFO:
 ${pageContext}
+
+${CLASSROOM_FEATURES_KNOWLEDGE}
 ${curriculumDigest ? `\nUNLOCKED MISSIONS:\n${curriculumDigest}` : ""}
 ${creationsContext ? `\nTHEIR RECENT WORK:\n${creationsContext}` : ""}
 ${sessionContext ? `\nCURRENT SESSION:\n${sessionContext}` : ""}

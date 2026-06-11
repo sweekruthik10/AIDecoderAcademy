@@ -5,7 +5,6 @@ import { cn } from "@/lib/utils";
 import { AudioPlayer, type AudioData } from "./AudioPlayer";
 import { SlideCarousel, type SlideData } from "./SlideCarousel";
 import VideoPlayer from "./VideoPlayer";
-import VideoLoadingBubble from "./VideoLoadingBubble";
 
 interface VideoData {
   videoUrl:         string;
@@ -416,10 +415,7 @@ export function MessageBubble({
           )}
 
           {/* Loading */}
-          {!isEmpty && isLoading && message.outputType === "video" && (
-            <VideoLoadingBubble arenaAccent={arenaAccent} arenaAccentGlow={arenaAccentGlow} />
-          )}
-          {!isEmpty && isLoading && message.outputType !== "video" && (
+          {!isEmpty && isLoading && (
             <LoadingBubble outputType={message.outputType} arenaId={arenaId} />
           )}
 

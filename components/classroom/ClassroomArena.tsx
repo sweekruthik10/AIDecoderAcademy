@@ -3,6 +3,9 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { FlashcardDeck, parseFlashcards } from "./FlashcardDeck";
 import type { FlashCard } from "./FlashcardDeck";
+import { AudioOverviewMessage, type AudioOverviewPayload } from "./AudioOverviewMessage";
+import { PodcastLoading, type LoadProgress } from "./PodcastLoading";
+import { PodcastPlayer, type PodcastResult } from "./PodcastPlayer";
 import { AnimatePresence, motion } from "framer-motion";
 import { ChevronLeft, Play, X } from "lucide-react";
 import { MessageBubble } from "@/components/playground/MessageBubble";
@@ -14,6 +17,9 @@ interface Props {
   chapter: Chapter;
   onBack:  () => void;
 }
+
+// Local extension: classroom messages may carry a rich audio-overview payload.
+type ClassroomMessage = Message & { audioOverview?: AudioOverviewPayload };
 
 interface SavedItem  { id: string; title: string; preview: string; content: string; createdAt: number; tags: string[]; }
 interface VideoItem  {
@@ -50,8 +56,8 @@ const TILES = [
   { key:"mindmap",    label:"Mind Map",         active:false, top:"33%" },
   { key:"comic",      label:"Comic Creations",  active:false, top:"44%" },
   { key:"explainer",  label:"Explainer Videos", active:false, top:"55%" },
-  { key:"audio",      label:"Audio Overview",   active:false, top:"66%" },
-  { key:"podcast",    label:"Audio Podcast",    active:false, top:"77%" },
+  { key:"audio",      label:"Audio Overview",   active:true,  top:"66%" },
+  { key:"podcast",    label:"Audio Podcast",    active:true,  top:"77%" },
 ] as const;
 
 const TILE_PROMPTS: Record<string, (t: string) => string> = {
@@ -69,17 +75,20 @@ export function ClassroomArena({ chapter, onBack }: Props) {
   const [savedItems,   setSavedItems]   = useState<SavedItem[]>([]);
   const [viewingItem,  setViewingItem]  = useState<SavedItem | null>(null);
   const [binDragOver,  setBinDragOver]  = useState(false);
-  const [messages,     setMessages]     = useState<Message[]>([]);
+  const [messages,     setMessages]     = useState<ClassroomMessage[]>([]);
   const [isStreaming,  setIsStreaming]  = useState(false);
   const [mode,           setMode]           = useState<"notes" | "videos">("notes");
   const [playingVideo,   setPlayingVideo]   = useState<VideoItem | null>(null);
   const [flashcardCards, setFlashcardCards] = useState<FlashCard[] | null>(null);
   const [flashcardRaw,   setFlashcardRaw]   = useState("");
+  const [audioOverviewMode, setAudioOverviewMode] = useState(false);
+  const [podcastProgress, setPodcastProgress] = useState<LoadProgress | null>(null);
+  const [podcast,         setPodcast]         = useState<PodcastResult | null>(null);
   const bottomRef           = useRef<HTMLDivElement>(null);
   const taRef               = useRef<HTMLTextAreaElement>(null);
   const pendingFlashcardRef = useRef(false);
   const wasStreamingRef     = useRef(false);
-  const messagesRef         = useRef<Message[]>([]);
+  const messagesRef         = useRef<ClassroomMessage[]>([]);
 
   useEffect(() => {
     fetch("/api/profile")
@@ -189,13 +198,117 @@ export function ClassroomArena({ chapter, onBack }: Props) {
     wasStreamingRef.current = isStreaming;
   }, [isStreaming]);
 
+  // Persist generated audio (overview/podcast) to creations. The creations
+  // schema only allows type ∈ story|code|art|quiz|chat|mixed (no "audio") and
+  // has no file_url column, so we save as type:"chat" + output_type:"audio"
+  // with the playable URL embedded in content JSON. type:"chat" also matches
+  // the ?type=chat mount-reload filter, so saved audio reloads on return.
+  const saveAudioCreation = useCallback((title: string, content: string, kind: "audio" | "podcast") => {
+    const tempId = crypto.randomUUID();
+    const preview = kind === "podcast" ? "Podcast episode" : "Audio overview";
+    setSavedItems(prev => [
+      { id: tempId, title, preview, content, tags: ["classroom", chapter.chapter_title, kind], createdAt: Date.now() },
+      ...prev,
+    ].slice(0, 10));
+    fetch("/api/creations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        title, type: "chat", output_type: "audio", content,
+        tags: ["classroom", chapter.chapter_title, kind],
+      }),
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.creation?.id) {
+          setSavedItems(prev => prev.map(item => item.id === tempId ? { ...item, id: data.creation.id } : item));
+        }
+      })
+      .catch(() => {});
+  }, [chapter.chapter_title]);
+
+  // Generates an audio overview and renders it as a chat message (loading →
+  // audio payload, or a funny off-topic quip). Declared before `send` because
+  // `send` depends on it.
+  const runOverview = useCallback(async (focus?: string) => {
+    const loadingId = crypto.randomUUID();
+    setMessages(prev => [...prev, {
+      id: loadingId, role: "assistant", outputType: "text",
+      content: "🎙️ Recording your overview…", isLoading: true, createdAt: new Date(),
+    } as ClassroomMessage]);
+    try {
+      const r = await fetch("/api/classroom/audio-overview", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chapterTitle: chapter.chapter_title, focus }),
+      });
+      if (!r.ok) throw new Error("bad status");
+      const data = await r.json();
+
+      if (data.offTopic) {
+        setMessages(prev => prev.map(m => m.id === loadingId
+          ? { ...m, content: data.quip, isLoading: false } : m));
+        return;
+      }
+
+      const payload: AudioOverviewPayload = {
+        audioUrl: data.audioUrl, title: data.title, script: data.script,
+        words: data.words ?? [], formulas: data.formulas ?? [], keyPoints: data.keyPoints ?? [],
+        table: data.table ?? null,
+      };
+      setMessages(prev => prev.map(m => m.id === loadingId
+        ? ({ ...m, content: data.title, isLoading: false, outputType: "audio", audioOverview: payload } as ClassroomMessage)
+        : m));
+      saveAudioCreation(data.title, JSON.stringify({ audioUrl: data.audioUrl, script: data.script }), "audio");
+    } catch {
+      setMessages(prev => prev.map(m => m.id === loadingId
+        ? { ...m, content: "Couldn't make your overview — please try again.", isLoading: false } : m));
+    }
+  }, [chapter.chapter_title, saveAudioCreation]);
+
   const send = useCallback(async (text: string) => {
     const t = text.trim();
     if (!t || !profile || isStreaming) return;
     setInput("");
     if (taRef.current) taRef.current.style.height = "auto";
+    if (audioOverviewMode) {
+      // Sticky: every message is an overview until the student exits the mode.
+      setMessages(prev => [...prev, {
+        id: crypto.randomUUID(), role: "user", outputType: "text",
+        content: t, createdAt: new Date(),
+      } as ClassroomMessage]);
+      await runOverview(t);
+      return;
+    }
     await sendMessage(t);
-  }, [profile, isStreaming, sendMessage]);
+  }, [profile, isStreaming, sendMessage, audioOverviewMode, runOverview]);
+
+  const runPodcast = useCallback(async (topic: string) => {
+    setPodcastProgress({ stage: "persona" });
+    try {
+      const r = await fetch("/api/classroom/podcast", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ topic, chapterTitle: chapter.chapter_title }),
+      });
+      if (!r.body) { setPodcastProgress({ stage: "error", message: "No response" }); return; }
+      const reader = r.body.getReader(); const dec = new TextDecoder(); let buf = "";
+      while (true) {
+        const { done, value } = await reader.read(); if (done) break;
+        buf += dec.decode(value, { stream: true });
+        const frames = buf.split("\n\n"); buf = frames.pop() ?? "";
+        for (const f of frames) {
+          const line = f.trim(); if (!line.startsWith("data:")) continue;
+          const evt = JSON.parse(line.slice(5).trim());
+          if (evt.stage === "done") {
+            setPodcast(evt as PodcastResult); setPodcastProgress(null);
+            saveAudioCreation(evt.title, JSON.stringify({ audioUrl: evt.audioUrl, transcript: evt.transcript, persona: evt.persona }), "podcast");
+          }
+          else setPodcastProgress(evt as LoadProgress);
+        }
+      }
+    } catch (e) {
+      setPodcastProgress({ stage: "error", message: (e as Error).message });
+    }
+  }, [chapter.chapter_title, saveAudioCreation]);
 
   const handleKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(input); }
@@ -317,23 +430,67 @@ export function ClassroomArena({ chapter, onBack }: Props) {
 
       {/* ── Toolbar hotspot: Notes (invisible clickable zone) ────────────────── */}
       <div
-        onClick={() => setMode("notes")}
+        onClick={() => { setAudioOverviewMode(false); setMode("notes"); }}
         className="absolute"
         style={{ left:"0", top:"10%", width:"10%", height:"8.5%", zIndex:20, cursor:"pointer" }}
       />
 
       {/* ── Toolbar hotspot: Flashcards (invisible clickable zone) ───────────── */}
       <div
-        onClick={() => { setMode("notes"); handleTileClick("flashcards"); }}
+        onClick={() => { setAudioOverviewMode(false); setMode("notes"); handleTileClick("flashcards"); }}
         className="absolute"
         style={{ left:"0", top:"21%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
       />
 
       {/* ── Toolbar hotspot: Explainer Videos (invisible clickable zone) ─────── */}
       <div
-        onClick={() => setMode("videos")}
+        onClick={() => { setAudioOverviewMode(false); setMode("videos"); }}
         className="absolute"
         style={{ left:0, top:"45%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
+      />
+
+      {/* ── Toolbar hotspot: Audio Overview (toggles sticky overview mode) ───── */}
+      <div
+        onClick={() => {
+          if (isStreaming) return;
+          if (audioOverviewMode) {
+            setAudioOverviewMode(false);
+            setMessages(prev => [...prev, {
+              id: crypto.randomUUID(), role: "assistant", outputType: "text",
+              content: "✅ Exited Audio Overview mode — back to normal chat.",
+              createdAt: new Date(),
+            } as ClassroomMessage]);
+            return;
+          }
+          setMode("notes");
+          setAudioOverviewMode(true);
+          setMessages(prev => [...prev, {
+            id: crypto.randomUUID(), role: "assistant", outputType: "text",
+            content: `🎧 **Audio Overview mode is ON.** Every message becomes an overview of *${chapter.chapter_title}* — the whole chapter, or any subtopic. (This chapter only 😄) Tap Audio Overview again to exit.`,
+            createdAt: new Date(),
+          } as ClassroomMessage]);
+        }}
+        className="absolute"
+        style={{ left:0, top:"66%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
+      />
+
+      {/* ── Active-mode glow over the Audio Overview tile ───────────────────── */}
+      {audioOverviewMode && (
+        <motion.div
+          className="absolute pointer-events-none"
+          style={{ left:0, top:"66%", width:"13%", height:"8.5%", zIndex:19, borderRadius:12,
+            border:"1.5px solid rgba(200,168,75,0.9)",
+            boxShadow:"0 0 18px rgba(200,168,75,0.65), inset 0 0 14px rgba(200,168,75,0.35)" }}
+          animate={{ opacity:[0.45,1,0.45] }}
+          transition={{ duration:1.6, repeat:Infinity, ease:"easeInOut" }}
+        />
+      )}
+
+      {/* ── Toolbar hotspot: Audio Podcast (invisible clickable zone) ────────── */}
+      <div
+        onClick={() => { setAudioOverviewMode(false); runPodcast(input.trim() || chapter.chapter_title); setInput(""); }}
+        className="absolute"
+        style={{ left:0, top:"77%", width:"13%", height:"8.5%", zIndex:20, cursor:"pointer" }}
       />
 
       {/* ── My Creations / Videos panel — overlaid on left wall panel ─────────── */}
@@ -592,18 +749,27 @@ export function ClassroomArena({ chapter, onBack }: Props) {
             </div>
           )}
 
-          {messages.map(msg => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              avatarEmoji={profile.avatar_emoji}
-              isStreaming={isStreaming && msg === messages[messages.length - 1]}
-              arenaAccent={ACCENT}
-              arenaAccentGlow={ACCENT_GLO}
-              arenaId={1}
-              onSave={handleSave}
-            />
-          ))}
+          {messages.map(msg => {
+            if (msg.audioOverview) {
+              return (
+                <div key={msg.id} className="flex justify-start">
+                  <AudioOverviewMessage payload={msg.audioOverview} />
+                </div>
+              );
+            }
+            return (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                avatarEmoji={profile.avatar_emoji}
+                isStreaming={isStreaming && msg === messages[messages.length - 1]}
+                arenaAccent={ACCENT}
+                arenaAccentGlow={ACCENT_GLO}
+                arenaId={1}
+                onSave={handleSave}
+              />
+            );
+          })}
 
           {/* Streaming dots */}
           {isStreaming && (
@@ -618,6 +784,37 @@ export function ClassroomArena({ chapter, onBack }: Props) {
 
           <div ref={bottomRef} />
         </div>
+
+        {/* ── Audio Overview active chip ─────────────────────────────────────── */}
+        {audioOverviewMode && (
+          <div style={{ flexShrink:0, padding:"0 4px 6px" }}>
+            <motion.div
+              initial={{ opacity:0, y:6 }} animate={{ opacity:1, y:0 }}
+              className="flex items-center gap-2 px-3 py-1.5 rounded-full w-fit"
+              style={{ background:"linear-gradient(180deg, rgba(200,168,75,0.22), rgba(200,168,75,0.10))",
+                border:"1px solid rgba(200,168,75,0.55)",
+                boxShadow:"0 0 16px rgba(200,168,75,0.35)" }}>
+              <motion.span style={{ width:7, height:7, borderRadius:"50%", background:"#C8A84B", display:"inline-block" }}
+                animate={{ opacity:[0.4,1,0.4] }} transition={{ duration:1.4, repeat:Infinity }} />
+              <span className="text-xs font-semibold" style={{ color:"#F4E4B8" }}>
+                🎧 Audio Overview ON — every message becomes an overview
+              </span>
+              <button
+                onClick={() => {
+                  setAudioOverviewMode(false);
+                  setMessages(prev => [...prev, {
+                    id: crypto.randomUUID(), role: "assistant", outputType: "text",
+                    content: "✅ Exited Audio Overview mode — back to normal chat.",
+                    createdAt: new Date(),
+                  } as ClassroomMessage]);
+                }}
+                className="text-xs font-bold ml-1 px-2 py-0.5 rounded-full hover:opacity-80"
+                style={{ background:"rgba(200,168,75,0.85)", color:"#1a1206" }}>
+                Exit
+              </button>
+            </motion.div>
+          </div>
+        )}
 
         {/* ── Input bar — dark pill, Creator's Room style ────────────────────── */}
         <div style={{ flexShrink:0, padding:"0 4px 8px" }}>
@@ -638,7 +835,9 @@ export function ClassroomArena({ chapter, onBack }: Props) {
                 t.style.height = Math.min(t.scrollHeight, 80) + "px";
               }}
               onKeyDown={handleKey}
-              placeholder="Ask anything about this chapter…"
+              placeholder={audioOverviewMode
+                ? "Overview mode — type the whole chapter or any subtopic…"
+                : `Ask about ${chapter.chapter_title}…`}
               rows={1}
               disabled={!profile}
               style={{ flex:1, resize:"none", border:"none", outline:"none",
@@ -733,6 +932,11 @@ export function ClassroomArena({ chapter, onBack }: Props) {
           />
         )}
       </AnimatePresence>
+
+      {/* ── Audio Overview now renders as an in-chat message (AudioOverviewMessage).
+             Podcast overlays remain below. ──────────────────────────────────── */}
+      {podcastProgress && <PodcastLoading progress={podcastProgress} />}
+      {podcast && <PodcastPlayer result={podcast} onClose={() => setPodcast(null)} />}
 
       {/* ── Saved item viewer modal ─────────────────────────────────────────── */}
       <AnimatePresence>

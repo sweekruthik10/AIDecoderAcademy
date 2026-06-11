@@ -235,7 +235,7 @@ export function TeacherCharacter({ profile, chapterTitle, hidden }: Props) {
         transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         className="fixed z-30 pointer-events-none"
         style={{
-          left:   "-8px",
+          left:   "13%",
           bottom: "0px",
           height: "clamp(280px, 38vh, 460px)",
           width:  "auto",

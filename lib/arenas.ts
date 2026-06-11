@@ -205,7 +205,6 @@ export const XP_REWARDS: Record<string, number> = {
   generate_image:       10,
   generate_audio:       15,
   generate_slides:      20,
-  generate_video:       40,
   save_creation:        8,
   first_creation:       25,   // bonus for very first save
   daily_streak:         20,

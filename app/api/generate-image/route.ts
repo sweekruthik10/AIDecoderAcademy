@@ -30,7 +30,8 @@ function extractImageContext(prompt: string): {
 }
 
 // Converts a modification request + original image title into a complete new image prompt.
-// Used when the user injects a saved image and wants content changes (e.g. "replace bear with lion").
+// Text-only fallback when vision is unavailable. Used to be the primary edit path,
+// but we now prefer buildEditPromptWithVision so GPT actually sees the original image.
 async function buildEditPrompt(originalTitle: string, modificationRequest: string): Promise<string> {
   const res = await openai.chat.completions.create({
     model:    "gpt-4o-mini",
@@ -50,6 +51,49 @@ async function buildEditPrompt(originalTitle: string, modificationRequest: strin
     ],
     temperature: 0.7,
     max_tokens:  180,
+  });
+  return res.choices[0]?.message?.content?.trim() ?? modificationRequest;
+}
+
+// Vision-augmented edit prompt — the previous title-only path could not preserve
+// face/clothing/colour identity (Linear: avatar regen pulled forest aesthetics).
+// Here we hand gpt-4o-mini the ACTUAL image and let it describe what it sees
+// before applying the modification. Identity carries through far better.
+async function buildEditPromptWithVision(
+  imageUrl:            string,
+  originalTitle:       string,
+  modificationRequest: string,
+): Promise<string> {
+  const res = await openai.chat.completions.create({
+    model:    "gpt-4o-mini",
+    messages: [
+      {
+        role:    "system",
+        content:
+          "You are a visual description writer for an AI image generator. " +
+          "You will see an existing image and a modification request. " +
+          "Write a complete image prompt for the NEW image that:\n" +
+          " 1. Preserves the SUBJECT IDENTITY of the original (face shape, hair, clothing, palette, composition).\n" +
+          " 2. Applies the modification request precisely.\n" +
+          " 3. Restates concrete visual details you can see in the source image — colours, lighting, framing.\n" +
+          "Output ONLY the image prompt — no preamble, no quotes, no commentary. Max 130 words.",
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "text",
+            text: `Original image (titled "${originalTitle}") is attached.\n\nModification request: "${modificationRequest}"\n\nWrite the complete visual prompt for the modified image.`,
+          },
+          {
+            type: "image_url",
+            image_url: { url: imageUrl },
+          },
+        ],
+      },
+    ],
+    temperature: 0.6,
+    max_tokens:  220,
   });
   return res.choices[0]?.message?.content?.trim() ?? modificationRequest;
 }
@@ -92,13 +136,24 @@ export async function POST(req: Request) {
     const wasComicIntent = COMIC_RE.test(cleanPrompt);
 
     if (imageUrl && imageTitle) {
-      // User injected a saved image and wants to edit it.
-      // The redux/img2img model only creates stylistic variations — it cannot reliably
-      // do semantic edits like "replace bear with lion". So we use GPT to write a
-      // complete new prompt that incorporates the original image's context + the changes,
-      // then generate fresh with text-to-image.
-      console.log("[generate-image] image-edit mode — original:", imageTitle, "| instruction:", cleanPrompt.slice(0, 80));
-      finalPrompt = await buildEditPrompt(imageTitle, cleanPrompt);
+      // User has an existing image and wants to edit it.
+      // Strategy (May 2026, post-avatar-bug fix):
+      //   1. Vision-augmented prompt rewrite — gpt-4o-mini LOOKS at the source image
+      //      so it can preserve identity (face, clothing, palette, composition) while
+      //      applying the modification. Pure title-text rewriting drifted badly.
+      //   2. fal redux img2img — pass the original URL as `image_url` so visual
+      //      continuity carries through at the diffusion step too. lib/imageGenerator.ts
+      //      already handles the redux endpoint when imageUrl is provided (line ~150).
+      console.log("[generate-image] vision-edit mode — original:", imageTitle, "| instruction:", cleanPrompt.slice(0, 80));
+      try {
+        finalPrompt = await buildEditPromptWithVision(imageUrl, imageTitle, cleanPrompt);
+      } catch (visionErr) {
+        // Fall back to the text-only edit prompt if the vision call fails
+        // (network glitch, image fetch denied, etc.) so the student still gets
+        // an image instead of an error.
+        console.warn("[generate-image] vision call failed — falling back to text-only edit prompt:", (visionErr as Error).message);
+        finalPrompt = await buildEditPrompt(imageTitle, cleanPrompt);
+      }
       console.log("[generate-image] resolved edit prompt:", finalPrompt.slice(0, 100));
     } else if (conversationHistory?.trim() && cleanPrompt.trim().split(/\s+/).length <= 6) {
       // History-aware mode only for short/ambiguous prompts (≤6 words) like "another one" or "similar".
@@ -118,9 +173,13 @@ export async function POST(req: Request) {
       finalPrompt = `${finalPrompt} — render as a comic strip with multiple panels`;
     }
 
-    // Always use text-to-image (no img2img) — the redux variation model doesn't follow
-    // semantic edit instructions reliably.
-    const buffer = await generateImage(finalPrompt, "fal-flux2pro", true);
+    // When we have a source image, route through fal redux (img2img) so the
+    // generated image inherits visual identity from the original. The redux
+    // endpoint blends prompt fidelity with source preservation via `strength`
+    // (lib/imageGenerator.ts sets strength=0.8 by default — biased toward the
+    // new prompt, which is what we want for "recreate my avatar but smiling").
+    // No source image → standard text-to-image.
+    const buffer = await generateImage(finalPrompt, "fal-flux2pro", true, imageUrl ?? undefined);
 
     const supabase  = createAdminClient();
     const filename  = `images/${userId}/${Date.now()}.png`;

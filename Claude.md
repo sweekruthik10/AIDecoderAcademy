@@ -17,6 +17,9 @@ A creative AI learning platform for students aged 11–16 (Gen Z / Gen Alpha). S
 | AI — Image | fal.ai `flux-pro/v1.1` (text→img) + `flux-pro/v1.1/redux` (img→img) |
 | AI — Audio | OpenAI `gpt-4o-mini` (script) + AWS Polly neural TTS |
 | AI — Slides | OpenAI `gpt-4o-mini` (structure) + fal.ai (scene images) + pptxgenjs |
+| AI — Video | **Removed.** A funny "no video for you" SVG is shown if a student selects video output. Original Modal.com pipeline archived to `Downloads/Jushwanth/dev/test/modal/`. |
+| AI — Classroom | OpenAI for lesson/paper/MCQ + AWS Textract (handwriting OCR) + Google Gemini (correction overlay) |
+| AI — AIDA voice | ElevenLabs TTS + ElevenLabs STT/realtime + browser WebRTC for live voice |
 | Vector DB | Pinecone (integrated embedding, cosine, per-child namespace) |
 | Icons | Lucide React |
 | Markdown | react-markdown |
@@ -46,6 +49,13 @@ AWS_REGION=us-east-1
 
 PINECONE_API_KEY=
 PINECONE_INDEX=ai-decoder-academy
+
+# Google Gemini — used by classroom Textract correction overlay + AIDA fallback
+GEMINI_API_KEY=
+
+# ElevenLabs — TTS/STT/realtime voice for AIDA and SAGE
+ELEVENLABS_API_KEY=
+ELEVENLABS_AGENT_ID=
 ```
 
 ---
@@ -78,6 +88,33 @@ app/
     projects/route.ts                 — project folder CRUD
     xp/route.ts                       — award XP, level-up detection, badge checks, streak
     arena/route.ts                    — PATCH active_arena on profile
+    generate-json/route.ts            — structured JSON output (worksheet schemas, objective scoring)
+    upload-temp/route.ts              — temp uploads (worksheet photos, paper scans) → Supabase Storage
+    objective-attempts/route.ts       — log + read objective attempts (pass/merit/distinction)
+    leaderboard/route.ts              — class leaderboard read
+    aida/route.ts                     — AIDA chat (reads whiteboard + validator + worksheet + objective + curriculum)
+    aida/validate/route.ts            — SAGE validator: whiteboard messages → pass/needs-work verdict
+    aida/validate/obj6/route.ts       — OBJ-6 staged worksheet validation (multi-section rubric)
+    aida/tts/route.ts                 — ElevenLabs text→speech proxy
+    aida/stt/route.ts                 — ElevenLabs speech→text
+    aida/stt-token/route.ts           — short-lived ElevenLabs realtime token for WebRTC voice
+    aida/nudge/route.ts               — proactive nudge endpoint (idle/struggle detection)
+    aida/obj6-upload/route.ts         — OBJ-6 worksheet image upload
+    aida/obj10-upload/route.ts        — OBJ-10 worksheet image upload
+    classroom/chat/route.ts           — Bhavna classroom chat (chapter-aware)
+    classroom/lesson/route.ts         — chapter lesson generation
+    classroom/paper/route.ts          — question paper / MCQ + written test generation
+    classroom/chapters/route.ts       — chapter listing
+    classroom/arena/route.ts          — classroom-arena state
+    classroom/evaluate-mcq/route.ts   — MCQ auto-grading
+    classroom/evaluate-written/route.ts — Textract OCR + Gemini correction pass on written answers
+    classroom/correct-notes/route.ts  — Textract + Gemini correction on uploaded handwritten notes
+    classroom/upload-answers/route.ts — upload scanned answer sheets
+    learner-model/reflect/route.ts    — append a reflection event to the learner model
+    learner-model/reset/route.ts      — reset the model (admin/test)
+    learner-model/weekly-cron/route.ts — weekly batch rollup
+    share/[token]/route.ts            — public share-link read
+    share/[token]/og/route.tsx        — OpenGraph image for share pages
 
 components/
   playground/
@@ -105,6 +142,34 @@ components/
     StreakMeter.tsx                   — streak count with milestone ticks
   dashboard/
     ArenaEnvironment.tsx              — full-viewport atmospheric CSS layer + pointer parallax
+  classroom/
+    ClassroomArena.tsx                — main classroom shell (Bhavna teacher + arena UI)
+    BhavnaWelcomePanel.tsx            — Bhavna's onboarding/welcome card
+    ChapterMapPage.tsx                — chapter selection map (subject → chapter)
+    MathChapterMapPage.tsx            — math-specific chapter map
+    ChapterPicker.tsx                 — chapter dropdown picker
+    LecturePanel.tsx                  — lesson reading panel with TTS narration
+    FlashcardDeck.tsx                 — chapter flashcards (spaced review)
+    NotesUpload.tsx                   — upload handwritten notes → Textract → Gemini correction
+    CorrectionReport.tsx              — annotated correction overlay viewer
+    TestTypeSelector.tsx              — MCQ vs Written test picker
+    MCQTest.tsx                       — MCQ test runner
+    WrittenTest.tsx                   — written test runner with handwritten upload
+    ProctoringGuard.tsx               — focus + visibility-change guard during tests
+    ScoreReport.tsx                   — MCQ score report
+    WrittenScoreReport.tsx            — written score report with per-question annotated images
+    TeacherCharacter.tsx              — animated SAGE/Bhavna sprite (also used as validator panel)
+    TeacherChat.tsx                   — Bhavna chat surface
+    ObjectivePage.tsx                 — objective landing for an arena mission
+    bhavnaTts.ts                      — Bhavna voice helper
+    useTeacherVoice.ts                — shared TTS hook for teacher characters
+  aida/
+    AidaAssistant.tsx                 — floating AIDA sprite + chat panel (steel-and-cyan)
+    voice/                            — LiveVoiceSession + ElevenLabs WebRTC adapter
+  sharing/
+    ShareModal.tsx                    — generate + copy public share link for a creation
+  profile/
+    LearnerStats.tsx                  — leaderboard + per-arena stats card on profile
 
 lib/
   arenas.ts                           — MASTER arena config: 6 arenas, XP thresholds, badges, helpers
@@ -117,10 +182,34 @@ lib/
   pptGenerator.ts                     — pptxgenjs slide builder
   pinecone.ts                         — upsertCreation(), deleteCreation(), queryContext()
   gameAudio.ts                        — optional Web Audio SFX for arena transitions + level-up
+  aidaPersona.ts                      — AIDA system prompt builder (objective + curriculum aware)
+  aidaDocs.ts                         — page-doc + creation-context fetcher for AIDA
+  aidaWhiteboardRouter.ts             — routes whiteboard transcript into AIDA prompt
+  teacherPersona.ts                   — SAGE system prompt (Skeptical Mentor)
+  playgroundPersona.ts                — whiteboard creation persona
+  serializeHistory.ts                 — compact chat history for downstream prompts
+  chatChannels.tsx                    — React context: whiteboard / validator / worksheet snapshots
+  objectives.ts                       — all 30+ objective definitions (id, arena, tier, tools, prompt)
+  objectiveRubrics.ts                 — pass/merit/distinction rubrics per objective
+  obj6Rubric.ts                       — multi-section rubric for OBJ-6 staged worksheet
+  objectiveUpload.ts                  — worksheet image upload helper
+  worksheetSchemas.ts                 — Zod schemas for each worksheet shape
+  worksheetExtract.ts                 — extract structured data from worksheet draft
+  annotateAnswerSheet.ts              — AWS Textract → Gemini correction overlay (written tests)
+  annotateNotesSheet.ts               — AWS Textract → Gemini correction overlay (uploaded notes)
+  learnerModel/
+    types.ts                          — LearnerModel + LearnerEvent shapes
+    seed.ts                           — empty-state seed
+    (helpers)                         — reduce events into rolling competency vector
 
 types/index.ts                        — all shared TypeScript types (Profile includes gamification fields)
-supabase/migrations/001_phase1_schema.sql
-supabase/gamification_migration.sql   — run this second in Supabase SQL editor
+supabase/migrations/
+  001_phase1_schema.sql               — core: profiles, sessions, messages, creations, projects
+  gamification_migration.sql          — XP, levels, arenas, badges, streak
+  classroom_migration.sql             — chapters, lessons, papers, attempts, notes
+  learner_model_migration.sql         — learner_model_events table
+  objective_attempts_migration.sql    — objective_attempts (pass/merit/distinction + rubric snapshot)
+  000_consolidated_fresh_setup.sql    — single-shot fresh setup (replays the above in order)
 ```
 
 ---
@@ -225,8 +314,18 @@ Students click `+` → `CreationPicker` → injects saved creation as context:
 - Enriched prompt goes to API; student sees only their original text in the bubble
 - `bubbleMeta` shows creation titles as chips on the user's message
 
-### Auto-Inject Previous Output
-When `outputType === "image"/"audio"/"slides"` and no manual creation injected, `buildPreviousOutputContext()` auto-injects the last assistant message of that type — enabling "make it darker" without manual selection.
+### Auto-Inject Previous Output (intent-aware, May 2026)
+When `outputType === "image"/"audio"/"slides"` and no manual creation is injected, `buildPreviousOutputContext()` auto-injects a previous assistant message of that type — enabling "make it darker" without manual selection.
+
+**Picker logic** (`pickBestPriorOutput` in `app/dashboard/playground/page.tsx`):
+1. Gate on `isModificationRequest()` regex — only acts on edit-intent verbs (`make`, `recreate`, `remake`, `redo`, `darker`, etc.).
+2. Collect every past assistant output of the matching type, paired with the user prompt that generated it.
+3. If only one candidate → take it.
+4. If multiple → score each candidate's user prompt by **token overlap with the current user prompt** (after stripping stop-words and modification verbs). Iterate newest→oldest so ties prefer the most recent.
+5. If the best score is 0 (no meaningful noun overlap, e.g. just "make it darker") → fall back to the most recent output.
+6. The chosen prompt becomes the `title` in the `[Image titled "…": url]` marker so downstream modification routes get a semantic label.
+
+**Why this matters:** the naive "last image" heuristic failed badly when students had multiple images in the same chat — e.g. "recreate my avatar" would pull the most recent forest image. Linear ticket *Avatar creation fails to maintain image context*.
 
 ### Modification Mode
 All three generation routes detect existing content in context and switch mode:
@@ -242,6 +341,34 @@ User messages with file attachments encode types as `"\n__attach:image,audio__"`
 - `message_count = 0` filtered from sidebar
 - Grouped Today/Yesterday/Earlier
 - `__init__` is static welcome text — zero API calls
+
+---
+
+## Classroom (Bhavna teacher · subject chapters · tests)
+
+Separate top-level surface at `/dashboard/classroom`. Different teacher persona (Bhavna), different content model (chapters → lessons → flashcards → tests), and its own DB tables (`classroom_migration.sql`).
+
+```
+ClassroomArena (shell)
+  ├── ChapterMapPage / MathChapterMapPage   → chapter list per subject
+  ├── ChapterPicker                          → drop-down to switch chapter
+  ├── LecturePanel  (POST /api/classroom/lesson)  — generated lesson + TTS narration via bhavnaTts
+  ├── FlashcardDeck                          → spaced-review flashcards for the chapter
+  ├── NotesUpload  (POST /api/classroom/correct-notes)
+  │     → AWS Textract handwriting OCR → Gemini correction → annotated overlay (annotateNotesSheet.ts)
+  │     → CorrectionReport renders the marked-up image
+  ├── TestTypeSelector                       → MCQ vs Written
+  │     ├── MCQTest  (POST /api/classroom/evaluate-mcq)    → ScoreReport
+  │     └── WrittenTest  (POST /api/classroom/upload-answers
+  │                       → /api/classroom/evaluate-written)
+  │           → Textract OCR + Gemini per-question correction (annotateAnswerSheet.ts)
+  │           → WrittenScoreReport with annotated images per question
+  └── ProctoringGuard                        → focus/visibility watcher during tests
+```
+
+- **Bhavna voice**: `bhavnaTts.ts` + `useTeacherVoice.ts` proxy through `/api/aida/tts` (ElevenLabs).
+- **Correction overlay**: Textract returns bounding boxes; Gemini re-reads each line and decides correct/needs-work; SVG overlay drawn on the original image. Used by both NotesUpload and WrittenTest.
+- **Tests are timed + proctored**: `ProctoringGuard` flags tab-switch / blur events; the test still submits but the report annotates with proctoring warnings.
 
 ---
 
@@ -371,6 +498,50 @@ Each arena drives: nav active link, sidebar active item, New Chat button, send b
 
 ---
 
+## Sharing (public creation links)
+
+`components/sharing/ShareModal.tsx` + `app/api/share/[token]/route.ts` + `app/api/share/[token]/og/route.tsx`.
+
+- "Share" button on a creation card → backend mints an opaque token, stores `creation_id ↔ token` mapping, returns `https://…/share/<token>`.
+- `/share/<token>` page renders the creation read-only (image/audio/slides) — no auth required.
+- `/api/share/<token>/og` generates an OpenGraph image so the link previews nicely in WhatsApp/Discord.
+- Shares are revocable: deleting the share row instantly 404s the public page.
+
+---
+
+## Objectives & Curriculum
+
+All curriculum lives in code, not DB:
+
+- `lib/objectives.ts` — 30+ objective definitions: `{ id: "a1-3", arenaId: 1, title, prompt, tier, tools, xp, ... }`. ID format is `a<arena>-<n>`.
+- `lib/objectiveRubrics.ts` — pass/merit/distinction criteria per objective.
+- `lib/obj6Rubric.ts` — special staged rubric for OBJ-6 (multi-section worksheet).
+- `lib/worksheetSchemas.ts` — Zod schemas describing each worksheet shape.
+- `lib/objectiveUpload.ts` — uploads worksheet photos to Supabase Storage.
+- `app/api/objective-attempts/route.ts` — POST logs an attempt with verdict + rubric snapshot.
+
+Playground reads `?objective=<id>` from URL → looks up objective → renders the matching worksheet popup → SAGE validates against the rubric → on pass, awards `objective_complete` XP (variable per objective).
+
+---
+
+## Learner Model (rolling competency vector)
+
+Lightweight rolling model of "what does this student know / struggle with".
+
+- DB: `learner_model_events` table (`learner_model_migration.sql`).
+- Writes: `/api/learner-model/reflect` is called on objective completion + on chat sessions ending, appending `{ topic, skill, signal: pass|merit|distinction|struggle }`.
+- Read: AIDA's prompt includes the latest rolled-up vector so she can say things like "you keep hitting merit on prompt-engineering — try a distinction one?".
+- Weekly rollup: `/api/learner-model/weekly-cron` aggregates the rolling buffer into a weekly snapshot. Triggered by a Vercel Cron (or external scheduler).
+- Reset endpoint: `/api/learner-model/reset` wipes for a profile (admin/testing only).
+
+---
+
+## Leaderboard
+
+`/api/leaderboard/route.ts` + `components/profile/LearnerStats.tsx`. Reads `profiles.xp` ordered desc, scoped to the student's grade/board. Shown on the trophy room (profile page) alongside per-arena badge progress.
+
+---
+
 ## Deployment
 
 **Recommended: Vercel**
@@ -403,6 +574,10 @@ Each arena drives: nav active link, sidebar active item, New Chat button, send b
 ---
 
 ## Common Gotchas
+
+- **Video output is intentionally disabled.** The Modal.com pipeline + `app/api/generate-video` + `app/api/video-status` + `VideoLoadingBubble.tsx` + `supabase/video_jobs_migration.sql` were moved to `C:/Users/USER/Downloads/Jushwanth/dev/test/modal/` in May 2026. `sendVideo` in `components/playground/useChat.ts` now just pushes an assistant message rendering `public/no-video-for-you.svg`. If video gen needs to come back, the archived `modal_app/` worker is reusable; re-add the API routes + restore `generate_video` to `XP_REWARDS` in `lib/arenas.ts`.
+
+
 
 - **fal.ai img2img**: use `fal-ai/flux-pro/v1.1/redux` — standard endpoint ignores `image_url`
 - **`welcomeMsg` is a function**: cannot JSON-serialize. XP route returns `unlocked_arena_id` (int only); `LevelUpModal` looks up full arena client-side from `lib/arenas.ts`

@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 640 420" width="640" height="420" role="img" aria-label="No video for you right now — the video machine is taking a nap.">
+  <defs>
+    <radialGradient id="spotlight" cx="50%" cy="40%" r="65%">
+      <stop offset="0%" stop-color="#1f1a0d"/>
+      <stop offset="55%" stop-color="#0c0a06"/>
+      <stop offset="100%" stop-color="#000000"/>
+    </radialGradient>
+    <linearGradient id="filmStrip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a1a22"/>
+      <stop offset="100%" stop-color="#0a0a12"/>
+    </linearGradient>
+    <linearGradient id="titleGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#FFD166"/>
+      <stop offset="50%" stop-color="#FF6B2B"/>
+      <stop offset="100%" stop-color="#FF2D78"/>
+    </linearGradient>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="640" height="420" fill="url(#spotlight)"/>
+
+  <!-- film perforations -->
+  <rect x="0"   y="0" width="36" height="420" fill="url(#filmStrip)"/>
+  <rect x="604" y="0" width="36" height="420" fill="url(#filmStrip)"/>
+  <g fill="#0a0a12" stroke="#2a2a36" stroke-width="1">
+    <rect x="8"   y="14"  width="20" height="22" rx="3"/>
+    <rect x="8"   y="58"  width="20" height="22" rx="3"/>
+    <rect x="8"   y="102" width="20" height="22" rx="3"/>
+    <rect x="8"   y="146" width="20" height="22" rx="3"/>
+    <rect x="8"   y="190" width="20" height="22" rx="3"/>
+    <rect x="8"   y="234" width="20" height="22" rx="3"/>
+    <rect x="8"   y="278" width="20" height="22" rx="3"/>
+    <rect x="8"   y="322" width="20" height="22" rx="3"/>
+    <rect x="8"   y="366" width="20" height="22" rx="3"/>
+    <rect x="612" y="14"  width="20" height="22" rx="3"/>
+    <rect x="612" y="58"  width="20" height="22" rx="3"/>
+    <rect x="612" y="102" width="20" height="22" rx="3"/>
+    <rect x="612" y="146" width="20" height="22" rx="3"/>
+    <rect x="612" y="190" width="20" height="22" rx="3"/>
+    <rect x="612" y="234" width="20" height="22" rx="3"/>
+    <rect x="612" y="278" width="20" height="22" rx="3"/>
+    <rect x="612" y="322" width="20" height="22" rx="3"/>
+    <rect x="612" y="366" width="20" height="22" rx="3"/>
+  </g>
+
+  <!-- sleeping film reel -->
+  <g transform="translate(320 145)">
+    <circle r="62" fill="#11131c" stroke="#3a3a4a" stroke-width="3"/>
+    <circle r="48" fill="none" stroke="#2a2a38" stroke-width="2"/>
+    <circle r="8"  fill="#3a3a4a"/>
+    <g fill="#0a0a12" stroke="#3a3a4a" stroke-width="2">
+      <circle cx="0"   cy="-32" r="9"/>
+      <circle cx="28"  cy="-16" r="9"/>
+      <circle cx="28"  cy="16"  r="9"/>
+      <circle cx="0"   cy="32"  r="9"/>
+      <circle cx="-28" cy="16"  r="9"/>
+      <circle cx="-28" cy="-16" r="9"/>
+    </g>
+    <!-- closed sleepy eyes -->
+    <path d="M -22 -2 Q -16 6 -10 -2" stroke="#FFD166" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <path d="M  10 -2 Q  16 6  22 -2" stroke="#FFD166" stroke-width="3" fill="none" stroke-linecap="round"/>
+    <!-- snore -->
+    <text x="60" y="-40" font-family="Syne, Impact, sans-serif" font-weight="800" font-size="34" fill="#FFD166">z</text>
+    <text x="78" y="-58" font-family="Syne, Impact, sans-serif" font-weight="800" font-size="22" fill="#FF6B2B">z</text>
+    <text x="92" y="-72" font-family="Syne, Impact, sans-serif" font-weight="800" font-size="16" fill="#FF2D78">z</text>
+  </g>
+
+  <!-- BIG title -->
+  <text x="320" y="270" text-anchor="middle" font-family="Syne, Impact, sans-serif" font-weight="900" font-size="56" fill="url(#titleGrad)" letter-spacing="2">
+    NO VIDEO FOR YOU!
+  </text>
+
+  <!-- subtitle -->
+  <text x="320" y="308" text-anchor="middle" font-family="DM Sans, system-ui, sans-serif" font-weight="600" font-size="18" fill="#ECECF3">
+    The video machine is taking a nap.
+  </text>
+  <text x="320" y="334" text-anchor="middle" font-family="DM Sans, system-ui, sans-serif" font-weight="500" font-size="14" fill="#9C9CB0">
+    Try text, image, audio, or slides instead — those still work!
+  </text>
+
+  <!-- ticket stub footer -->
+  <g transform="translate(320 378)">
+    <rect x="-110" y="-16" width="220" height="32" rx="6" fill="#FFD166"/>
+    <text x="0" y="6" text-anchor="middle" font-family="JetBrains Mono, monospace" font-weight="700" font-size="13" fill="#1a1306" letter-spacing="2">
+      ADMIT NONE · SHOWING CANCELLED
+    </text>
+  </g>
+</svg>
