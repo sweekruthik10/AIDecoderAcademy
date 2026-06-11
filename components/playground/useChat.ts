@@ -409,15 +409,16 @@ export function useChat(profile: Profile | null, mode: PlaygroundMode, objective
     }
   }, [profile, isStreaming, sessionId, mode, createSession, messages]);
 
-  // ─── Video output: temporarily disabled. Shows a friendly "no video" image. ─
+  // ─── Video (async via Modal worker + polling) ────────────────────────────
 
   const sendVideo = useCallback(async (
-    _prompt: string,
+    prompt: string,
     displayPrompt?: string,
     bubbleMeta?: string[],
+    targetSeconds: number = 20,
   ) => {
     if (!profile || isStreaming) return;
-    const cleanUserText = displayPrompt ?? _prompt;
+    const cleanUserText = displayPrompt ?? prompt;
 
     setMessages(prev => [...prev, {
       id: crypto.randomUUID(), role: "user", content: cleanUserText,
@@ -426,13 +427,92 @@ export function useChat(profile: Profile | null, mode: PlaygroundMode, objective
       createdAt: new Date(),
     }]);
 
+    const asstId = crypto.randomUUID();
     setMessages(prev => [...prev, {
-      id: crypto.randomUUID(), role: "assistant",
-      content: "/no-video-for-you.svg",
-      outputType: "image",
-      createdAt: new Date(),
+      id: asstId, role: "assistant",
+      // VideoLoadingBubble component handles its own animated copy.
+      // Any non-empty content keeps the bubble visible; the loader replaces it.
+      content: " ",
+      outputType: "video", isLoading: true, createdAt: new Date(),
     }]);
-  }, [profile, isStreaming]);
+    setIsStreaming(true);
+
+    let activeSid = sessionId;
+    if (!activeSid) activeSid = await createSession(mode);
+
+    const fail = (msg: string) => {
+      setMessages(prev => prev.map(m =>
+        m.id === asstId ? { ...m, content: msg, isLoading: false } : m
+      ));
+    };
+
+    try {
+      // 1. Submit — returns callId in <10s (Vercel-free safe).
+      const submitRes = await fetch("/api/generate-video", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt, sessionId: activeSid, targetSeconds }),
+      });
+      const submit = await submitRes.json();
+      if (!submitRes.ok || !submit.callId) {
+        const errText = submit.quotaExceeded
+          ? submit.error
+          : `Oops! ${submit?.error ?? "Could not start your video"} — try again? 🎬`;
+        fail(errText);
+        return;
+      }
+
+      // 2. Poll Modal status every 5s, up to ~8 min, each poll <10s.
+      const callId = submit.callId as string;
+      const POLL_MS = 5000;
+      const MAX_POLLS = 100;
+      let poll = 0;
+      let final: { videoUrl?: string; title?: string; durationSeconds?: number; shotCount?: number; modelUsed?: string } | null = null;
+
+      while (poll < MAX_POLLS) {
+        await new Promise(r => setTimeout(r, POLL_MS));
+        poll += 1;
+
+        let s;
+        try {
+          const r = await fetch(`/api/video-status?callId=${encodeURIComponent(callId)}`);
+          s = await r.json();
+        } catch { continue; }
+
+        if (s.status === "failed") {
+          fail(`Oops! ${s.error ?? "Video generation failed"} — try again? 🎬`);
+          return;
+        }
+        if (s.status === "done" && s.videoUrl) {
+          final = {
+            videoUrl: s.videoUrl, title: s.title, durationSeconds: s.durationSeconds,
+            shotCount: s.shotCount, modelUsed: s.modelUsed,
+          };
+          break;
+        }
+      }
+
+      if (!final) {
+        fail("Your video is taking longer than expected. Check 'My Creations' in a minute.");
+        return;
+      }
+
+      const videoPayload = JSON.stringify(final);
+      setMessages(prev => prev.map(m =>
+        m.id === asstId ? { ...m, content: videoPayload, isLoading: false } : m
+      ));
+      fetch("/api/sessions/messages-save", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          session_id: activeSid, user_content: cleanUserText,
+          assistant_content: videoPayload, output_type: "video",
+        }),
+      }).catch(() => {});
+    } catch (e) {
+      fail("Oops! Could not build your video. Try again? 🎬");
+    } finally {
+      setIsStreaming(false);
+    }
+  }, [profile, isStreaming, sessionId, mode, createSession]);
 
   // ─── Static message ───────────────────────────────────────────────────────
 

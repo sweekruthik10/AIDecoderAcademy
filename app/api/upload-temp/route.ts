@@ -11,7 +11,7 @@ export const maxDuration = 30;
 // with this persistent URL so the generation APIs can fetch it directly.
 // Temp files are never auto-deleted (they're small); the bucket limit is fine.
 
-const ALLOWED_MIME_PREFIXES = ["image/", "audio/", "application/pdf"];
+const ALLOWED_MIME_PREFIXES = ["image/", "audio/", "video/", "application/pdf"];
 const ALLOWED_MIME_EXACT    = [
   "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
