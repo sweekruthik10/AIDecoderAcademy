@@ -445,18 +445,21 @@ export function LecturePanel({ profile: _profile, chapterTitle, onClose, onSpeak
               <button
                 onClick={voice.toggleMute}
                 title={voice.muted ? "Unmute Bhavna" : "Mute Bhavna"}
-                className="w-7 h-7 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.06)", border: `1px solid ${voice.muted ? GOLD : "rgba(255,255,255,0.12)"}` }}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{
+                  background: voice.muted ? "rgba(224,177,76,0.35)" : "rgba(224,177,76,0.55)",
+                  border: `1px solid ${GOLD}`,
+                }}
               >
-                {voice.muted ? <VolumeX size={12} color={TEXT_HI} /> : <Volume2 size={12} color={TEXT_HI} />}
+                {voice.muted ? <VolumeX size={15} color="#08080F" /> : <Volume2 size={15} color="#08080F" />}
               </button>
               <button
                 onClick={handleClose}
                 aria-label="Close lesson"
-                className="w-7 h-7 rounded-full flex items-center justify-center"
-                style={{ background: "rgba(255,255,255,0.04)", color: TEXT_MID }}
+                className="w-9 h-9 rounded-full flex items-center justify-center"
+                style={{ background: "rgba(220,38,38,0.55)", border: "1px solid rgba(220,38,38,0.9)" }}
               >
-                <X size={14} />
+                <X size={16} color="#08080F" />
               </button>
             </div>
           </div>
