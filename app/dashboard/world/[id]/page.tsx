@@ -24,11 +24,15 @@ export default function WorldPage() {
   const arenaId = parseInt(params.id as string) || 1;
   const arena   = getArena(arenaId);
 
-  const [profile,    setProfile]    = useState<Profile | null>(null);
-  const [completed,  setCompleted]  = useState<Set<string>>(new Set());
-  const [launching,  setLaunching]  = useState<string | null>(null);
+  const [profile,           setProfile]          = useState<Profile | null>(null);
+  const [completed,         setCompleted]         = useState<Set<string>>(new Set());
+  const [launching,         setLaunching]         = useState<string | null>(null);
+  const [lockedObjective,   setLockedObjective]   = useState<Objective | null>(null);
+  const [hoveredObjective,  setHoveredObjective]  = useState<Objective | null>(null);
+  // Hover takes priority for preview; locked persists after mouse leaves
+  const selectedObjective = hoveredObjective ?? lockedObjective;
   // Arena 1: refined on image load so hotspot % positions stay aligned to image content
-  const [arena1Aspect, setArena1Aspect] = useState(1.6);
+  const [arena1Aspect, setArena1Aspect] = useState(16 / 9);
 
   const objectives = getArenaObjectives(arenaId);
 
@@ -42,14 +46,20 @@ export default function WorldPage() {
 
   const unlocked  = isArenaUnlocked(arenaId);
 
+  const handleSelectObjective = (obj: Objective) => {
+    if (!unlocked) return;
+    setLockedObjective(obj);
+  };
+
   const handleStartObjective = (obj: Objective) => {
     if (!unlocked) return;
+    setLockedObjective(obj);
     setLaunching(obj.id);
     // Only pass the objective ID — prompt and outputType are looked up
     // in the playground from lib/objectives so they're never exposed in the URL.
-    const params = new URLSearchParams({ objective: obj.id });
+    const urlParams = new URLSearchParams({ objective: obj.id });
     setTimeout(() => {
-      router.push(`/dashboard/playground?${params.toString()}`);
+      router.push(`/dashboard/playground?${urlParams.toString()}`);
     }, 400);
   };
 
@@ -57,66 +67,51 @@ export default function WorldPage() {
   const allDone         = completedCount === objectives.length;
 
   return (
-    <div className="relative w-full overflow-hidden" style={{ height: "100vh" }}>
+    <div className="relative w-full overflow-hidden" style={{ height: "100dvh" }}>
 
       {/* ── World background ── */}
       {arenaId === 1 ? (
         /*
-         * Arena 1 — image + hotspots share the same aspect-ratio-preserving container.
-         * This means hotspot % positions always map to the same spot on the image,
-         * regardless of viewport size (no object-fit crop misalignment).
-         *
-         * The inner div is sized so it exactly covers the viewport while preserving
-         * the image's native aspect ratio, then centered with translate(-50%,-50%).
+         * Arena 1 — image fills edge-to-edge, no sidebars, no crop.
+         * object-fit: fill stretches the 16:9 image to exactly match the
+         * viewport dimensions (~2% vertical compression, imperceptible).
+         * Hotspot % positions are relative to the same container the image
+         * fills, so they are always pixel-perfect regardless of screen size.
          */
-        <div className="absolute inset-0 overflow-hidden">
-          <div
-            style={{
-              position: "absolute",
-              top: "50%",
-              left: "50%",
-              transform: "translate(-50%, -50%)",
-              // Cover the viewport: whichever dimension is the bottleneck, fill it.
-              width:  `max(100vw, calc(100vh * ${arena1Aspect}))`,
-              height: `max(100vh, calc(100vw / ${arena1Aspect}))`,
+        <div className="absolute inset-0">
+          <img
+            src="/worlds/arena-1.png"
+            alt=""
+            draggable={false}
+            style={{ position: "absolute", inset: 0, width: "100%", height: "100%", objectFit: "fill", display: "block" }}
+            onLoad={(e) => {
+              const img = e.currentTarget;
+              if (img.naturalWidth && img.naturalHeight)
+                setArena1Aspect(img.naturalWidth / img.naturalHeight);
             }}
-          >
-            <img
-              src="/worlds/arena-1.png"
-              alt=""
-              draggable={false}
-              style={{ width: "100%", height: "100%", display: "block" }}
-              onLoad={(e) => {
-                const img = e.currentTarget;
-                if (img.naturalWidth && img.naturalHeight) {
-                  setArena1Aspect(img.naturalWidth / img.naturalHeight);
-                }
-              }}
-            />
-            {/* Subtle vignette — keeps edges readable without obscuring panels */}
-            <div
-              className="absolute inset-0 pointer-events-none"
-              style={{ background: "linear-gradient(180deg, rgba(6,6,15,0.12) 0%, rgba(6,6,15,0.0) 40%, rgba(6,6,15,0.22) 100%)" }}
-            />
-            {/* Hotspot overlay lives inside the same container — % positions are image-accurate */}
-            {unlocked && (
-              <Arena1HotspotMap
-                objectives={objectives}
-                completed={completed}
-                onObjectiveClick={handleStartObjective}
-              />
-            )}
+          />
 
-            {/* Center summary + engagement overlay */}
-            {unlocked && (
-              <Arena1CenterOverlay
-                objectives={objectives}
-                completed={completed}
-                profile={profile}
-                onStartNext={handleStartObjective}
-              />
-            )}
-          </div>
+          {/* Hotspot overlay */}
+          {unlocked && (
+            <Arena1HotspotMap
+              objectives={objectives}
+              completed={completed}
+              onObjectiveClick={handleStartObjective}
+              onObjectiveSelect={handleSelectObjective}
+              onObjectiveHover={(obj) => setHoveredObjective(obj ?? null)}
+            />
+          )}
+
+          {/* Center summary overlay */}
+          {unlocked && (
+            <Arena1CenterOverlay
+              objectives={objectives}
+              completed={completed}
+              selectedObjective={selectedObjective}
+              profile={profile}
+              onStartNext={handleStartObjective}
+            />
+          )}
         </div>
       ) : (
         <div className="absolute inset-0">
