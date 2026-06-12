@@ -281,8 +281,9 @@ function clearDraft(lmsId: string, profileId?: string) {
 export function ObjectiveSubmissionPanel({
   open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], onClose, onComplete,
 }: Props) {
-  const isObj6        = rubric.lmsId === "l1-06";
-  const validateUrl   = isObj6 ? "/api/aida/validate/obj6" : "/api/aida/validate/obj10";
+  const objNumber     = (() => { const m = rubric.lmsId.match(/l1-0?(\d+)/); return m ? parseInt(m[1], 10) : 10; })();
+  const isObj6        = objNumber === 6;
+  const validateUrl   = `/api/aida/validate/obj${objNumber}`;
 
   const [phase,   setPhase]   = useState<Phase>("intro");
   const [pending, setPending] = useState<PendingPayload | null>(null);
@@ -386,8 +387,8 @@ export function ObjectiveSubmissionPanel({
     } else {
       // Second+ open: contextual notice line that reflects what's pending.
       setPhase("ready");
-      // Media now comes from chat — count whichever kind the objective needs.
-      const chatMediaCount = isObj6 ? whiteboardVideos.length : whiteboardImages.length;
+      // Media always comes from whiteboard images now.
+      const chatMediaCount = whiteboardImages.length;
       const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
       const ctx: ReadyContext = {
         hasInlineForm,
@@ -483,12 +484,14 @@ export function ObjectiveSubmissionPanel({
       return;
     }
 
-    // Media is ALWAYS from the whiteboard chat — the worksheet popup no
-    // longer accepts uploads. BOTH objectives now take the most recent IMAGE
-    // (OBJ 6 = avatar image, OBJ 10 = comic image). Videos are no longer the
-    // OBJ 6 deliverable per the GenAlpha spec rewrite.
+    // Media always comes from whiteboard chat images.
+    // obj2: needs first 3 images (ChatGPT → Gemini → Claude screenshots, in order).
+    // obj6/obj10: needs the most recent image.
+    // All other objectives: no media required.
     let mediaToUse: string[] = [];
-    if (whiteboardImages.length > 0) {
+    if (objNumber === 2) {
+      mediaToUse = whiteboardImages.slice(0, 3).map(i => i.url);
+    } else if (whiteboardImages.length > 0) {
       mediaToUse = [whiteboardImages[whiteboardImages.length - 1].url];
     }
 
@@ -498,8 +501,14 @@ export function ObjectiveSubmissionPanel({
       speakLine(msg);
       return;
     }
-    if (!isObj6 && mediaToUse.length === 0) {
+    if (objNumber === 10 && mediaToUse.length === 0) {
       const msg = "Worksheet — in. Comic — missing. I can read minds, not blank canvases. Generate the comic or drop it in chat.";
+      setError(msg);
+      speakLine(msg);
+      return;
+    }
+    if (objNumber === 2 && mediaToUse.length < 3) {
+      const msg = `I need all 3 screenshots — ChatGPT, Gemini, and Claude — dropped in chat in that order. You've got ${mediaToUse.length} so far.`;
       setError(msg);
       speakLine(msg);
       return;
@@ -525,26 +534,22 @@ export function ObjectiveSubmissionPanel({
     validateAbortRef.current = ctrl;
 
     try {
-      const body = isObj6
-        ? {
-            worksheet:      worksheetPayload,
-            avatarImageUrl: mediaToUse[0],
-            notes:          fresh?.notes ?? "",
-            profile: {
-              display_name: profile?.display_name ?? "Student",
-              age_group:    profile?.age_group    ?? "11-13",
-            },
-          }
-        : {
-            worksheet:        worksheetPayload,
-            comicImageUrls:   mediaToUse,
-            notes:            fresh?.notes ?? "",
-            whiteboardImages,
-            profile: {
-              display_name: profile?.display_name ?? "Student",
-              age_group:    profile?.age_group    ?? "11-13",
-            },
-          };
+      const profilePayload = {
+        display_name: profile?.display_name ?? "Student",
+        age_group:    profile?.age_group    ?? "11-13",
+      };
+      const notes = fresh?.notes ?? "";
+
+      let body: Record<string, unknown>;
+      if (isObj6) {
+        body = { worksheet: worksheetPayload, avatarImageUrl: mediaToUse[0], notes, profile: profilePayload };
+      } else if (objNumber === 2) {
+        body = { worksheet: worksheetPayload, v1ImageUrl: mediaToUse[0], v2ImageUrl: mediaToUse[1], v3ImageUrl: mediaToUse[2], notes, profile: profilePayload };
+      } else if (objNumber === 10) {
+        body = { worksheet: worksheetPayload, comicImageUrls: mediaToUse, notes, whiteboardImages, profile: profilePayload };
+      } else {
+        body = { worksheet: worksheetPayload, notes, profile: profilePayload };
+      }
 
       const res = await fetch(validateUrl, {
         method:  "POST",
@@ -578,7 +583,7 @@ export function ObjectiveSubmissionPanel({
       // Publish to validator channel so AIDA can ground its replies.
       let attemptCount = 0;
       try {
-        const cRes = await fetch(`/api/objective-attempts?objective_id=${rubric.lmsId === "l1-06" ? "a1-6" : "a1-10"}`);
+        const cRes = await fetch(`/api/objective-attempts?objective_id=a1-${objNumber}`);
         if (cRes.ok) attemptCount = (await cRes.json()).count ?? 0;
       } catch { /* non-fatal */ }
       publishValidator({
@@ -591,7 +596,7 @@ export function ObjectiveSubmissionPanel({
 
       // Log + complete attempt.
       try {
-        const objId = rubric.lmsId === "l1-06" ? "a1-6" : "a1-10";
+        const objId = `a1-${objNumber}`;
         const aRes  = await fetch("/api/objective-attempts", {
           method:  "POST",
           headers: { "Content-Type": "application/json" },
