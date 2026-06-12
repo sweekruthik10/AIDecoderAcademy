@@ -80,10 +80,10 @@ NOTES (when asked for notes, summary, or study material):
 
 FLASHCARDS (when asked for flashcards or Q&A):
   - Produce exactly the requested count (default 10)
-  - Format strictly:
-    **Q[n]: [question]**
-    A: [answer — 1-3 sentences max]
-  - Blank line between cards.
+  - Format EXACTLY as shown — one blank line between cards, no preamble:
+    **Q:** [question]
+    **A:** [answer — 1-3 sentences max]
+    **IMG:** [image description for the concept — choose style: diagram-style for molecules/circuits/structures, realistic-style for organisms/phenomena, illustrated-style for processes/reactions]
   - No preamble or post-amble — just the cards.
 
 EXPLANATIONS / FREE QUESTIONS:
