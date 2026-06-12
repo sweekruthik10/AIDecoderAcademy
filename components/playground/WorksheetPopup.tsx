@@ -461,11 +461,10 @@ export function WorksheetPopup({
     );
   }
 
-  // Submit allowed when the required inline fields are filled. (The kid can
-  // also drop a filled .docx/.pdf into chat — that path is picked up by the
-  // validator directly, no popup involvement.)
+  // Always enabled while nothing is uploading — SAGE will call out missing
+  // fields during validation rather than blocking the student here.
   const inlineFilled = allRequiredFilled(schema, data);
-  const canSubmit    = inlineFilled && mediaUploading === 0;
+  const canSubmit    = mediaUploading === 0;
 
   return (
     <AnimatePresence>
@@ -763,7 +762,10 @@ export function WorksheetPopup({
                   {tooBig
                     ? <span className="text-red-400">Too long — trim to save.</span>
                     : savedAt
-                      ? <span><Save size={12} className="inline mr-1" />Draft saved</span>
+                      ? <span style={{ color: inlineFilled ? "rgba(0,212,255,0.8)" : "rgba(255,255,255,0.5)" }}>
+                          <Save size={12} className="inline mr-1" />
+                          {inlineFilled ? "Ready to submit" : "Draft saved — fill all fields to complete"}
+                        </span>
                       : <span>Autosaves as you type</span>}
                 </div>
                 <div className="flex items-center gap-2">
