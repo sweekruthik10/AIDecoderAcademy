@@ -435,16 +435,15 @@ export const RUBRICS_L1: ObjectiveRubric[] = [
 export const RUBRICS_L2: ObjectiveRubric[] = [];
 
 // ─── Combined index ──────────────────────────────────────────────────────────
-// Static imports for staged rubrics (currently only OBJ 10). Adding more
-// staged rubrics later → import them here and extend STAGED_RUBRICS.
 
 import { OBJ10_RUBRIC, type StagedRubric } from "@/lib/obj10Rubric";
 import { OBJ6_STAGED_RUBRIC } from "@/lib/obj6Rubric";
+import { OBJ1_STAGED_RUBRIC } from "@/lib/obj1Rubric";
 
 export type AnyRubric = ObjectiveRubric | StagedRubric;
 
 const SINGLE_RUBRICS: ObjectiveRubric[] = [...RUBRICS_L1, ...RUBRICS_L2];
-const STAGED_RUBRICS: StagedRubric[]    = [OBJ10_RUBRIC, OBJ6_STAGED_RUBRIC];
+const STAGED_RUBRICS: StagedRubric[]    = [OBJ1_STAGED_RUBRIC, OBJ6_STAGED_RUBRIC, OBJ10_RUBRIC];
 
 const singleRubricMap: Record<string, ObjectiveRubric> = Object.fromEntries(
   SINGLE_RUBRICS.map(r => [r.lmsId, r]),
