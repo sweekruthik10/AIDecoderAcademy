@@ -728,7 +728,7 @@ export function CreationsRoom({
               style={{ display: "none" }} onChange={handleFileUpload}/>
             <button onClick={() => fileRef.current?.click()}
               style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
                 border:     "1px solid rgba(0,212,255,0.28)",
                 background:
                   "linear-gradient(180deg, " +
@@ -737,8 +737,8 @@ export function CreationsRoom({
                     "rgba(14,28,56,0.55) 100%" +
                   ")",
                 color:      "rgba(232,244,255,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 textAlign:  "left",
                 boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,212,255,0)",
               }}
@@ -756,33 +756,95 @@ export function CreationsRoom({
               }}
             >
               <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(180deg, #7DD3FC 0%, #00D4FF 50%, #0284C7 100%)",
                 border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(0,212,255,0.55)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(0,212,255,0.55)",
               }}>
-                <ImageIcon size={20} style={{ color: "#031024" }} />
+                <ImageIcon size={16} style={{ color: "#031024" }} />
               </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
                   Upload screenshots
                 </span>
-                <span style={{ fontSize: 10, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 9, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
                   PNG · JPG · WEBP — multiple
                 </span>
               </span>
             </button>
 
-            {/* Video file */}
+            {/* Audio file — MP4/MP3/M4A from Suno.ai, ElevenLabs, etc. */}
             <input type="file"
-              accept="video/mp4,video/mov,video/webm,video/avi,video/x-matroska,.mp4,.mov,.webm,.avi,.mkv,.m4v"
+              accept="audio/*,.mp3,.mp4,.m4a,.wav,.ogg,.aac,.flac"
+              style={{ display: "none" }}
+              id="audio-upload-input"
+              onChange={handleFileUpload}/>
+
+            {/* Video file — non-MP4 video formats */}
+            <input type="file"
+              accept="video/mov,video/webm,video/avi,video/x-matroska,.mov,.webm,.avi,.mkv,.m4v"
               style={{ display: "none" }}
               id="video-upload-input"
               onChange={handleFileUpload}/>
+
+            {/* Audio upload button */}
+            <button onClick={() => (document.getElementById("audio-upload-input") as HTMLInputElement)?.click()}
+              style={{
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
+                border:     "1px solid rgba(0,170,255,0.28)",
+                background:
+                  "linear-gradient(180deg, " +
+                    "rgba(0,60,100,0.32) 0%, " +
+                    "rgba(0,30,60,0.55) 50%, " +
+                    "rgba(0,20,45,0.55) 100%" +
+                  ")",
+                color:      "rgba(180,230,255,0.92)",
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
+                textAlign:  "left",
+                boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,170,255,0)",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background =
+                  "linear-gradient(180deg, rgba(0,60,100,0.55) 0%, rgba(0,30,60,0.7) 50%, rgba(0,20,45,0.7) 100%)";
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(0,170,255,0.85)";
+                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.18), 0 0 22px rgba(0,170,255,0.45)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background =
+                  "linear-gradient(180deg, rgba(0,60,100,0.32) 0%, rgba(0,30,60,0.55) 50%, rgba(0,20,45,0.55) 100%)";
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(0,170,255,0.28)";
+                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,170,255,0)";
+              }}
+            >
+              <span style={{
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "linear-gradient(180deg, #7DD3FC 0%, #00AAFF 50%, #0070CC 100%)",
+                border: "1px solid rgba(255,255,255,0.25)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(0,170,255,0.55)",
+              }}>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                  <path d="M9 18V5l12-2v13" stroke="#00162e" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="6" cy="18" r="3" stroke="#00162e" strokeWidth="1.8"/>
+                  <circle cx="18" cy="16" r="3" stroke="#00162e" strokeWidth="1.8"/>
+                </svg>
+              </span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
+                  Upload audio
+                </span>
+                <span style={{ fontSize: 9, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                  MP4 · MP3 · M4A · WAV · OGG
+                </span>
+              </span>
+            </button>
+
+            {/* Video upload button */}
             <button onClick={() => (document.getElementById("video-upload-input") as HTMLInputElement)?.click()}
               style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
                 border:     "1px solid rgba(255,120,0,0.28)",
                 background:
                   "linear-gradient(180deg, " +
@@ -791,8 +853,8 @@ export function CreationsRoom({
                     "rgba(40,18,8,0.55) 100%" +
                   ")",
                 color:      "rgba(255,220,180,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 textAlign:  "left",
                 boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(255,120,0,0)",
               }}
@@ -810,81 +872,23 @@ export function CreationsRoom({
               }}
             >
               <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(180deg, #FCA47D 0%, #FF7800 50%, #C24E00 100%)",
                 border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(255,120,0,0.55)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(255,120,0,0.55)",
               }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                   <rect x="2" y="5" width="14" height="14" rx="2" stroke="#1a0800" strokeWidth="1.8"/>
                   <path d="M16 9l6-3v12l-6-3V9z" fill="#1a0800"/>
                 </svg>
               </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
                   Upload video
                 </span>
-                <span style={{ fontSize: 10, color: "rgba(252,164,125,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
-                  MP4 · MOV · WEBM · AVI · MKV
-                </span>
-              </span>
-            </button>
-
-            {/* Audio file */}
-            <input type="file"
-              accept="audio/mp3,audio/mpeg,audio/wav,audio/ogg,audio/webm,audio/aac,.mp3,.wav,.ogg,.m4a,.aac"
-              style={{ display: "none" }}
-              id="audio-upload-input"
-              onChange={handleFileUpload}/>
-            <button onClick={() => (document.getElementById("audio-upload-input") as HTMLInputElement)?.click()}
-              style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
-                border:     "1px solid rgba(255,45,120,0.28)",
-                background:
-                  "linear-gradient(180deg, " +
-                    "rgba(100,10,50,0.32) 0%, " +
-                    "rgba(50,5,28,0.55) 50%, " +
-                    "rgba(35,3,18,0.55) 100%" +
-                  ")",
-                color:      "rgba(255,190,220,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
-                textAlign:  "left",
-                boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(255,45,120,0)",
-              }}
-              onMouseEnter={e => {
-                (e.currentTarget as HTMLElement).style.background =
-                  "linear-gradient(180deg, rgba(100,10,50,0.55) 0%, rgba(50,5,28,0.7) 50%, rgba(35,3,18,0.7) 100%)";
-                (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,45,120,0.85)";
-                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.18), 0 0 22px rgba(255,45,120,0.45)";
-              }}
-              onMouseLeave={e => {
-                (e.currentTarget as HTMLElement).style.background =
-                  "linear-gradient(180deg, rgba(100,10,50,0.32) 0%, rgba(50,5,28,0.55) 50%, rgba(35,3,18,0.55) 100%)";
-                (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,45,120,0.28)";
-                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(255,45,120,0)";
-              }}
-            >
-              <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
-                display: "flex", alignItems: "center", justifyContent: "center",
-                background: "linear-gradient(180deg, #FF8FB8 0%, #FF2D78 50%, #C0004F 100%)",
-                border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(255,45,120,0.55)",
-              }}>
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
-                  <path d="M9 18V5l12-2v13" stroke="#3a0020" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
-                  <circle cx="6" cy="18" r="3" stroke="#3a0020" strokeWidth="1.8"/>
-                  <circle cx="18" cy="16" r="3" stroke="#3a0020" strokeWidth="1.8"/>
-                </svg>
-              </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
-                  Upload audio
-                </span>
-                <span style={{ fontSize: 10, color: "rgba(255,143,184,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
-                  MP3 · WAV · OGG · AAC
+                <span style={{ fontSize: 9, color: "rgba(252,164,125,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                  MOV · WEBM · AVI · MKV
                 </span>
               </span>
             </button>
@@ -897,7 +901,7 @@ export function CreationsRoom({
               onChange={handleFileUpload}/>
             <button onClick={() => (document.getElementById("doc-upload-input") as HTMLInputElement)?.click()}
               style={{
-                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                width: "100%", padding: "11px 12px", borderRadius: 10, cursor: "pointer",
                 border:     "1px solid rgba(0,212,255,0.28)",
                 background:
                   "linear-gradient(180deg, " +
@@ -906,8 +910,8 @@ export function CreationsRoom({
                     "rgba(14,28,56,0.55) 100%" +
                   ")",
                 color:      "rgba(232,244,255,0.92)",
-                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
-                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                fontSize:   12, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 10,
                 textAlign:  "left",
                 boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(0,212,255,0)",
               }}
@@ -925,19 +929,19 @@ export function CreationsRoom({
               }}
             >
               <span style={{
-                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                width: 32, height: 32, borderRadius: 8, flexShrink: 0,
                 display: "flex", alignItems: "center", justifyContent: "center",
                 background: "linear-gradient(180deg, #7DD3FC 0%, #00D4FF 50%, #0284C7 100%)",
                 border: "1px solid rgba(255,255,255,0.25)",
-                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(0,212,255,0.55)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 10px rgba(0,212,255,0.55)",
               }}>
-                <FileText size={20} style={{ color: "#031024" }} />
+                <FileText size={16} style={{ color: "#031024" }} />
               </span>
-              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
-                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 12, color: "white", letterSpacing: "-0.01em" }}>
                   Upload worksheet
                 </span>
-                <span style={{ fontSize: 10, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                <span style={{ fontSize: 9, color: "rgba(125,211,252,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
                   PDF · DOC · DOCX
                 </span>
               </span>
