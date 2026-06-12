@@ -63,6 +63,7 @@ export default function Arena1HotspotMap({ objectives, completed, onObjectiveCli
           <div
             key={obj.id}
             onMouseLeave={() => { setHoveredId(null); onObjectiveHover?.(null); }}
+            onClick={() => { if (enabled) onObjectiveClick(obj); }}
             style={{
               position:      "absolute",
               left:          `${left}%`,
@@ -71,13 +72,12 @@ export default function Arena1HotspotMap({ objectives, completed, onObjectiveCli
               height:        `${CARD_H}%`,
               zIndex:        isOpen ? 100 : 20,
               pointerEvents: "auto",
-              cursor:        "default",
+              cursor:        enabled ? "pointer" : "default",
             }}
           >
-            {/* Trigger strip — skip decorative top border (0-20%), land on number + title text (20-60%) */}
+            {/* Trigger strip — hover zone only (20-60%): shows tooltip. Card click handles navigation. */}
             <div
               onMouseEnter={() => { setHoveredId(obj.id); onObjectiveHover?.(obj); }}
-              onClick={() => onObjectiveSelect?.(obj)}
               style={{
                 position:      "absolute",
                 left:          0,
@@ -85,7 +85,6 @@ export default function Arena1HotspotMap({ objectives, completed, onObjectiveCli
                 top:           "20%",
                 height:        "40%",
                 pointerEvents: "auto",
-                cursor:        "pointer",
               }}
             />
             <AnimatePresence>
