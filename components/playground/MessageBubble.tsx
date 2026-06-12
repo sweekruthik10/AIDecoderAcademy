@@ -464,9 +464,10 @@ export function MessageBubble({
               <div>
                 <p className="whitespace-pre-wrap">{message.content}</p>
                 {message.attachmentMeta && message.attachmentMeta.length > 0 && (() => {
-                  // Split into injected-image entries (img:url) and plain type badges
-                  const imgEntries  = message.attachmentMeta.filter(m => m.startsWith("img:"));
-                  const badgeEntries = message.attachmentMeta.filter(m => !m.startsWith("img:"));
+                  // Split into injected-image (img:url), doc (doc:name:url), and plain type badges
+                  const imgEntries   = message.attachmentMeta.filter(m => m.startsWith("img:"));
+                  const docEntries   = message.attachmentMeta.filter(m => m.startsWith("doc:"));
+                  const badgeEntries = message.attachmentMeta.filter(m => !m.startsWith("img:") && !m.startsWith("doc:"));
                   return (
                     <div className="mt-2 flex flex-col gap-1.5">
                       {/* Injected image thumbnails */}
@@ -484,6 +485,34 @@ export function MessageBubble({
                                   image
                                 </div>
                               </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* Document chips — show filename + file icon */}
+                      {docEntries.length > 0 && (
+                        <div className="flex gap-2 flex-wrap">
+                          {docEntries.map((item, i) => {
+                            const parts    = item.slice(4).split(":"); // strip "doc:", then split name:url
+                            const filename = parts[0] ?? "document";
+                            const url      = parts.slice(1).join(":"); // re-join URL (has "https:")
+                            return (
+                              <a key={i} href={url || "#"} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg no-underline flex-shrink-0"
+                                style={{
+                                  background: "rgba(255,255,255,0.15)",
+                                  border: "1px solid rgba(255,255,255,0.25)",
+                                  color: userTextColor,
+                                  maxWidth: 200,
+                                }}>
+                                <svg width="12" height="12" viewBox="0 0 10 10" fill="none" style={{ flexShrink: 0 }}>
+                                  <path d="M6 1H2.5a1 1 0 00-1 1v6a1 1 0 001 1h5a1 1 0 001-1V3.5L6 1z" stroke="currentColor" strokeWidth="1"/>
+                                  <path d="M6 1v2.5h2.5" stroke="currentColor" strokeWidth="1"/>
+                                </svg>
+                                <span style={{ fontSize: 10, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {filename}
+                                </span>
+                              </a>
                             );
                           })}
                         </div>

@@ -286,11 +286,20 @@ function PlaygroundInner() {
     const displayText   = isCtxMarker ? userText : undefined;
 
     // If an image creation was injected, extract its URL for thumbnail display in the bubble.
-    const imgUrlMatch   = isCtxMarker
+    const imgUrlMatch    = isCtxMarker
       ? contextPart.match(/^\[Image titled "[^"]+": (https?:\/\/\S+)\]$/)
       : null;
-    const injectedImgUrl = imgUrlMatch ? imgUrlMatch[1] : null;
-    const imgBubbleMeta  = injectedImgUrl ? [`img:${injectedImgUrl}`] : [];
+    const injectedImgUrl  = imgUrlMatch ? imgUrlMatch[1] : null;
+    const imgBubbleMeta   = injectedImgUrl ? [`img:${injectedImgUrl}`] : [];
+
+    // If a document was injected, extract filename + URL for the bubble badge.
+    const docMatch       = isCtxMarker
+      ? contextPart.match(/^\[Document titled "([^"]+)": (https?:\/\/\S+)\]$/)
+      : null;
+    const docBubbleMeta  = docMatch ? [`doc:${docMatch[1]}:${docMatch[2]}`] : [];
+
+    // Merge: image thumbnail first, then doc badge
+    const attachBubbleMeta = [...imgBubbleMeta, ...docBubbleMeta];
 
     // Skip auto-inject when user explicitly dragged a creation into the prompt —
     // that would prepend a second [Image...] marker and extractImageUrl in the API
@@ -304,21 +313,19 @@ function PlaygroundInner() {
     const cleanDisplay = displayText ?? (hasContext ? userText : undefined);
 
     if (outType === "image") {
-      await sendImage(enrichedText, cleanDisplay, imgBubbleMeta);
+      await sendImage(enrichedText, cleanDisplay, attachBubbleMeta);
       awardXP("generate_image").then(handleXpResult);
     } else if (outType === "audio") {
-      // Pass imgBubbleMeta so injected image thumbnail still shows in the bubble
-      await sendAudio(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, imgBubbleMeta);
+      await sendAudio(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, attachBubbleMeta);
       awardXP("generate_audio").then(handleXpResult);
     } else if (outType === "slides") {
-      await sendSlides(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, imgBubbleMeta);
+      await sendSlides(enrichedText, profile?.age_group ?? "11-13", cleanDisplay, attachBubbleMeta);
       awardXP("generate_slides").then(handleXpResult);
     } else if (outType === "video") {
-      // Video generation temporarily disabled — shows a funny "no video for you" image.
-      await sendVideo(enrichedText, cleanDisplay, imgBubbleMeta);
+      await sendVideo(enrichedText, cleanDisplay, attachBubbleMeta);
     } else {
       // Pass displayPrompt (6th arg) so the bubble shows the clean text, not the context marker
-      await sendMessage(enrichedText, outType, [], undefined, imgBubbleMeta.length ? imgBubbleMeta : undefined, cleanDisplay);
+      await sendMessage(enrichedText, outType, [], undefined, attachBubbleMeta.length ? attachBubbleMeta : undefined, cleanDisplay);
       awardXP("generate_text").then(handleXpResult);
     }
   };
