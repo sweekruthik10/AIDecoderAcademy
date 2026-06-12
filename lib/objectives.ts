@@ -107,51 +107,6 @@ export const OBJECTIVES: Objective[] = [
     starterPrompt: "I'm planning a 3-panel comic. Help me brainstorm a funny scenario with a setup, a twist, and a punchline. Audience: someone my age. The punchline must land in panel 3.",
     xpReward: 35,
   },
-  {
-    id: "a1-11", arenaId: 1, order: 11,
-    emoji: "🎥",
-    title: "Eight Seconds of AI Cinema",
-    description: "Write a 3-sentence story. Generate a scene image in Firefly. Narrate it in ElevenLabs. Combine image + narration into an 8–10 second video in Canva Video. Your first complete AI video clip!",
-    outputType: "video",
-    starterPrompt: "Help me create my first AI video clip — 8 to 10 seconds. Step 1: Write a powerful 3-sentence story (vivid, visual, emotional). Step 2: Write an Adobe Firefly image prompt for the key scene. Step 3: Write an ElevenLabs narration script (same 3 sentences, dramatic delivery). I'll combine them in Canva Video.",
-    xpReward: 35,
-  },
-  {
-    id: "a1-12", arenaId: 1, order: 12,
-    emoji: "🔍",
-    title: "Catch AI Getting It Wrong",
-    description: "Select 3 AI outputs from your previous objectives that surprised or disappointed you. Apply the CT Skill 1 three-question check to diagnose the root cause of each failure. Report your findings.",
-    outputType: "text",
-    starterPrompt: "I'm auditing 3 AI outputs from my previous objectives that disappointed or surprised me. For each one, apply CT Skill 1 — the three-question check: 1) Was the failure caused by my prompt quality? 2) Did I make an unchecked assumption? 3) Was my intent clearly defined? Help me diagnose the root cause of each failure, not just describe it.",
-    xpReward: 25,
-  },
-  {
-    id: "a1-13", arenaId: 1, order: 13,
-    emoji: "📊",
-    title: "Your AI Slide Deck — But Make It Yours",
-    description: "Generate a 5-slide educational deck on any topic using Gamma.app. Identify the weakest slide — where AI was most generic. Rewrite it to be genuinely better. Submit both the AI version and your improved version.",
-    outputType: "slides",
-    starterPrompt: "Help me create a 5-slide educational deck on [choose any topic you find interesting]. Write the content for all 5 slides: title, 3 content slides with specific key insights, and a conclusion. Then identify which slide is the weakest — where the content is most generic — and rewrite that slide to be genuinely more interesting and specific.",
-    xpReward: 30,
-  },
-  {
-    id: "a1-14", arenaId: 1, order: 14,
-    emoji: "🎭",
-    title: "The Multimodal Creative Set",
-    description: "Pick one topic. Generate a text explanation (ChatGPT), an AI image (Canva AI), a music track (Suno.ai), and a voice narration (ElevenLabs) — all on the same topic. Evaluate coherence: do all four outputs tell the same story?",
-    outputType: "text",
-    starterPrompt: "I'm building a Multimodal Creative Set on one topic. Help me create all four outputs: 1) A clear 5-sentence text explanation (ChatGPT). 2) A Canva AI image prompt that visually represents the topic. 3) A Suno.ai music prompt that captures the mood of the topic. 4) An ElevenLabs narration of the same 5 sentences. My topic is: [choose your topic]. Then help me evaluate — do all four outputs communicate the same thing coherently?",
-    xpReward: 35,
-  },
-  {
-    id: "a1-15", arenaId: 1, order: 15,
-    emoji: "🏆",
-    title: "Level 1 Creator Card",
-    description: "Compile your 5 best outputs from Level 1 into a branded Creator Card template. Write a 3-sentence Director's Statement: what you built, what surprised you, and what you intend to do differently in Level 2.",
-    outputType: "slides",
-    starterPrompt: "Help me create my Level 1 Creator Card — my final submission for AI Explorer. I need: 1) Help choosing my 5 best outputs from Level 1 (ask me what I made). 2) A branded layout description for a Creator Card template. 3) My 3-sentence Director's Statement: what I built this level, what surprised me most, and one specific thing I will do differently in Level 2.",
-    xpReward: 50,
-  },
   // ── Arena 2 — Prompt Lab ────────────────────────────────
   {
     id: "a2-1", arenaId: 2, order: 1,
@@ -334,13 +289,20 @@ export const OBJECTIVES: Objective[] = [
 // between them deterministically — no migration of localStorage or URLs
 // is required.
 export function toLmsId(id: string): string {
-  const m = id.match(/^a(\d+)-(\d+)$/);
+  const m = id.match(/^[al](\d+)-(\d+)$/i);
   if (!m) return id;
   return `l${m[1]}-${m[2].padStart(2, "0")}`;
 }
 
+export function normalizeObjectiveId(id: string): string {
+  const m = id.match(/^[al](\d+)-(\d+)$/i);
+  if (!m) return id;
+  return `a${m[1]}-${String(Number(m[2]))}`;
+}
+
 export function getObjectiveById(id: string): Objective | undefined {
-  return OBJECTIVES.find(o => o.id === id);
+  const normalized = normalizeObjectiveId(id);
+  return OBJECTIVES.find(o => o.id === normalized);
 }
 
 export function getArenaObjectives(arenaId: number): Objective[] {
@@ -356,14 +318,16 @@ export function getCompletedObjectives(): Set<string> {
   if (typeof window === "undefined") return new Set();
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? new Set(JSON.parse(raw) as string[]) : new Set();
+    return raw
+      ? new Set((JSON.parse(raw) as string[]).map(normalizeObjectiveId))
+      : new Set();
   } catch { return new Set(); }
 }
 
 export function markObjectiveComplete(id: string): void {
   if (typeof window === "undefined") return;
   const current = getCompletedObjectives();
-  current.add(id);
+  current.add(normalizeObjectiveId(id));
   localStorage.setItem(STORAGE_KEY, JSON.stringify([...current]));
 }
 
@@ -383,8 +347,11 @@ export function isArenaUnlocked(arenaId: number): boolean {
 // We only have full worksheet specs + validator rubrics for OBJ 6 and OBJ 10
 // at the moment, so the other tiles in Arena 1 are visually present but
 // non-interactive. As specs land for OBJ 1, 2, … just add their ids here.
-const ENABLED_OBJECTIVE_IDS = new Set(["a1-6", "a1-10"]);
+const ENABLED_OBJECTIVE_IDS = new Set([
+  "a1-1", "a1-2", "a1-3", "a1-4", "a1-5",
+  "a1-6", "a1-7", "a1-8", "a1-9", "a1-10",
+]);
 
 export function isObjectiveEnabled(objectiveId: string): boolean {
-  return ENABLED_OBJECTIVE_IDS.has(objectiveId);
+  return ENABLED_OBJECTIVE_IDS.has(normalizeObjectiveId(objectiveId));
 }
