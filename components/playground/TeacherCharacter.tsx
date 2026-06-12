@@ -123,6 +123,22 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       const format: "pdf" | "docx" = lower.includes(".pdf") ? "pdf" : "docx";
       whiteboardDocs.push({ url, filename, format });
     }
+    // Also pick up docs stored in attachmentMeta chips (format "doc:filename:https://url")
+    // when the message content was replaced with clean display text by the playground page.
+    if (Array.isArray(m.attachmentMeta)) {
+      for (const tag of m.attachmentMeta) {
+        if (typeof tag === "string" && tag.startsWith("doc:")) {
+          const rest  = tag.slice(4);                        // "filename:https://..."
+          const colon = rest.indexOf(":");
+          const filename = colon > -1 ? rest.slice(0, colon) : rest;
+          const url      = colon > -1 ? rest.slice(colon + 1) : "";
+          if (!url.startsWith("http")) continue;
+          const lower = (url + " " + filename).toLowerCase();
+          const format: "pdf" | "docx" = lower.includes(".pdf") ? "pdf" : "docx";
+          whiteboardDocs.push({ url, filename, format });
+        }
+      }
+    }
     for (const match of m.content.matchAll(VID_MARKER_RE)) {
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "video";
@@ -132,6 +148,19 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "audio";
       whiteboardAudio.push({ url, filename });
+    }
+    // Also pick up audio stored in attachmentMeta chips (format "audio:filename:https://url")
+    if (Array.isArray(m.attachmentMeta)) {
+      for (const tag of m.attachmentMeta) {
+        if (typeof tag === "string" && tag.startsWith("audio:")) {
+          const rest  = tag.slice(6);
+          const colon = rest.indexOf(":");
+          const filename = colon > -1 ? rest.slice(0, colon) : rest;
+          const url      = colon > -1 ? rest.slice(colon + 1) : "";
+          if (!url.startsWith("http")) continue;
+          whiteboardAudio.push({ url, filename });
+        }
+      }
     }
   }
   if (wantsImages) {
