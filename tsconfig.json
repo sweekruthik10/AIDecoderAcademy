@@ -24,6 +24,9 @@
     "paths": {
       "@/*": [
         "./*"
+      ],
+      "sharp": [
+        "./node_modules/sharp/lib/index.d.ts"
       ]
     },
     "target": "ES2017"

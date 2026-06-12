@@ -859,7 +859,7 @@ export function ObjectiveSubmissionPanel({
             {/* Body — phase-driven */}
             <div className="flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
               {phase === "ready" && (
-                <ReadyView pending={pending} isObj6={isObj6} whiteboardImageCount={whiteboardImages.length}/>
+                <ReadyView pending={pending} isObj6={isObj6} isWorksheetOnly={objNumber === 1} whiteboardImageCount={whiteboardImages.length}/>
               )}
               {phase === "submitting" && <SubmittingPanel/>}
               {phase === "result" && result && (
@@ -950,28 +950,41 @@ function ActionButton({
 }
 
 function ReadyView({
-  pending, isObj6, whiteboardImageCount,
-}: { pending: PendingPayload | null; isObj6: boolean; whiteboardImageCount: number }) {
+  pending, isObj6, isWorksheetOnly, whiteboardImageCount,
+}: {
+  pending:              PendingPayload | null;
+  isObj6:               boolean;
+  isWorksheetOnly:      boolean;
+  whiteboardImageCount: number;
+}) {
   const hasInline   = pending?.data && Object.keys(pending.data).length > 0;
   const hasFile     = !!pending?.worksheetFile;
   const mediaCount  = pending?.mediaUrls?.length ?? 0;
   const usingWhiteboardFallback = !isObj6 && mediaCount === 0 && whiteboardImageCount > 0;
 
+  const mediaLabel  = isObj6 ? "Avatar video" : "Output image";
+  const mediaOk     = mediaCount > 0 || usingWhiteboardFallback;
+  const mediaDetail = mediaCount > 0
+    ? `${mediaCount} uploaded`
+    : usingWhiteboardFallback
+      ? "Will use most recent whiteboard image"
+      : isObj6
+        ? "Upload your MP4 in the worksheet"
+        : "Generate the output in the whiteboard";
+
   return (
     <div className="space-y-2">
-      <div className="text-[12px] font-display font-bold text-white/80">What I'll grade</div>
+      <div className="text-[12px] font-display font-bold text-white/80">What I&apos;ll grade</div>
       <Row label="Worksheet"
            ok={!!(hasInline || hasFile)}
            detail={hasFile ? `📄 ${pending!.worksheetFile!.filename}` : hasInline ? "Filled in — ready" : "Not yet — open the worksheet and fill it in"}/>
-      <Row label={isObj6 ? "Avatar video" : "Comic image"}
-           ok={mediaCount > 0 || usingWhiteboardFallback}
-           detail={
-             mediaCount > 0
-               ? `${mediaCount} uploaded`
-               : usingWhiteboardFallback
-                 ? "Will use most recent whiteboard image"
-                 : isObj6 ? "Upload your MP4 in the worksheet" : "Generate a comic in the whiteboard or upload one"
-           }/>
+      {isWorksheetOnly ? (
+        whiteboardImageCount > 0 ? (
+          <Row label="Output image" ok detail="Generated in whiteboard"/>
+        ) : null
+      ) : (
+        <Row label={mediaLabel} ok={mediaOk} detail={mediaDetail}/>
+      )}
       {pending?.notes && (
         <Row label="Your notes" ok detail={`"${pending.notes.slice(0, 80)}${pending.notes.length > 80 ? "…" : ""}"`}/>
       )}
