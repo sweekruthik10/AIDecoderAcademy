@@ -152,6 +152,7 @@ export function WorksheetPopup({
   const [promptLoading,   setPromptLoading]   = useState(false);
   const [promptError,     setPromptError]     = useState<string | null>(null);
   const [promptCopied,    setPromptCopied]    = useState(false);
+  const [parseStatus, setParseStatus] = useState<"idle" | "parsing" | "filled" | "blank">("idle");
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const writer = useWorksheetWriter();
 
@@ -172,6 +173,7 @@ export function WorksheetPopup({
     setGeneratedPrompt(initial.generatedPrompt ?? "");
     setPromptError(null);
     setPromptCopied(false);
+    setParseStatus("idle");
     writer.setDraft(lmsId, initial.data);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, schema, lmsId, profileId]);
@@ -215,6 +217,9 @@ export function WorksheetPopup({
         // Merge parsed data on top of existing to avoid wiping manual edits.
         setData(prev => ({ ...prev, ...detail.data }));
         writer.setDraft(lmsId, { ...detail.data });
+        setParseStatus("filled");
+      } else {
+        setParseStatus("blank");
       }
     }
     window.addEventListener("aida:worksheet-parsed", onParsed);
@@ -763,6 +768,24 @@ export function WorksheetPopup({
                   )}
                 </section>
               </div>
+
+              {/* ── Parse status banner ────────────────────────────── */}
+              {parseStatus === "filled" && (
+                <div className="mx-5 mb-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2"
+                  style={{ background: "rgba(0,212,255,0.12)", color: "rgba(0,212,255,0.9)", border: "1px solid rgba(0,212,255,0.25)" }}>
+                  <span>✅</span>
+                  <span>Fields pre-filled from your document — check and adjust if needed.</span>
+                  <button className="ml-auto text-white/40 hover:text-white/70 transition" onClick={() => setParseStatus("idle")}>✕</button>
+                </div>
+              )}
+              {parseStatus === "blank" && (
+                <div className="mx-5 mb-2 px-3 py-2 rounded-lg text-xs flex items-center gap-2"
+                  style={{ background: "rgba(255,165,0,0.12)", color: "rgba(255,165,0,0.9)", border: "1px solid rgba(255,165,0,0.25)" }}>
+                  <span>⚠️</span>
+                  <span>Document looks blank — fill in your answers first, save the file, then re-upload it to the chat.</span>
+                  <button className="ml-auto text-white/40 hover:text-white/70 transition" onClick={() => setParseStatus("idle")}>✕</button>
+                </div>
+              )}
 
               {/* ── Footer ─────────────────────────────────────────── */}
               <footer className="sticky bottom-0 px-5 py-3 border-t border-white/10 bg-[#0F0F1A]/95 backdrop-blur flex items-center justify-between gap-2">

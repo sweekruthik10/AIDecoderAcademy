@@ -79,11 +79,21 @@ const OBJ10_FIELD_LINES: Record<string, string> = {
   panel3Dialogue:   "Panel 3 punchline dialogue — missing. That's a joke with no ending. Classic move.",
 };
 
+// OBJ 1 only checks the four canvas fields up front. The deeper storyIt /
+// createIt fields are graded server-side (SAGE calls them out if empty).
+const OBJ1_FIELD_LINES: Record<string, string> = {
+  intent:      "Intent — blank. What reaction do you want the room to have? Start there.",
+  assumptions: "Assumptions — empty. What are you betting ChatGPT will do with your prompt?",
+  audience:    "Audience — nothing. 'My class' is too broad. Name one person in the room.",
+  success:     "Success — also blank. What would the room actually do if it landed?",
+};
+
 function getEmptyFieldLines(
   data: Record<string, string | boolean>,
   isObj6: boolean,
+  objNumber?: number,
 ): string[] {
-  const map = isObj6 ? OBJ6_FIELD_LINES : OBJ10_FIELD_LINES;
+  const map = isObj6 ? OBJ6_FIELD_LINES : objNumber === 1 ? OBJ1_FIELD_LINES : OBJ10_FIELD_LINES;
   return Object.entries(map)
     .filter(([key]) => {
       const val = data[key];
@@ -280,6 +290,16 @@ function clearDraft(lmsId: string, profileId?: string) {
   localStorage.removeItem(`aida:worksheet:${lmsId}:${profileId}:draft`);
 }
 
+function hasExplicitSave(lmsId: string, profileId?: string): boolean {
+  if (typeof window === "undefined" || !profileId) return false;
+  try {
+    const raw = localStorage.getItem(`aida:worksheet:${lmsId}:${profileId}:pending`);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return !!(parsed && typeof parsed === "object" && parsed.lmsId === lmsId);
+  } catch { return false; }
+}
+
 export function ObjectiveSubmissionPanel({
   open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], whiteboardAudio = [], onClose, onComplete,
 }: Props) {
@@ -287,12 +307,13 @@ export function ObjectiveSubmissionPanel({
   const isObj6        = objNumber === 6;
   const validateUrl   = `/api/aida/validate/obj${objNumber}`;
 
-  const [phase,   setPhase]   = useState<Phase>("intro");
-  const [pending, setPending] = useState<PendingPayload | null>(null);
-  const [result,  setResult]  = useState<FinalResult | null>(null);
-  const [error,   setError]   = useState<string | null>(null);
-  const [text,    setText]    = useState("");
-  const [revealed,setRevealed]= useState(0);
+  const [phase,            setPhase]            = useState<Phase>("intro");
+  const [pending,          setPending]          = useState<PendingPayload | null>(null);
+  const [isExplicitlySaved,setIsExplicitlySaved]= useState(false);
+  const [result,           setResult]           = useState<FinalResult | null>(null);
+  const [error,            setError]            = useState<string | null>(null);
+  const [text,             setText]             = useState("");
+  const [revealed,         setRevealed]         = useState(0);
 
   const speakRef         = useRef<SpeakHandle | null>(null);
   const validateAbortRef = useRef<AbortController | null>(null);
@@ -374,6 +395,7 @@ export function ObjectiveSubmissionPanel({
 
     const fresh = readPending(rubric.lmsId, profile?.id);
     setPending(fresh);
+    setIsExplicitlySaved(hasExplicitSave(rubric.lmsId, profile?.id));
 
     let isFirstOpen = false;
     if (typeof window !== "undefined") {
@@ -406,7 +428,7 @@ export function ObjectiveSubmissionPanel({
         isObj6,
         isWorksheetOnly:  objNumber === 1,
         emptyFieldCount:  hasInlineForm && fresh?.data
-          ? getEmptyFieldLines(fresh.data, isObj6).length
+          ? getEmptyFieldLines(fresh.data, isObj6, objNumber).length
           : 0,
       };
       speakLine(pickReadyLine(ctx));
@@ -517,6 +539,7 @@ export function ObjectiveSubmissionPanel({
           },
         }));
         setPending(readPending(lmsId, profileId));
+        setIsExplicitlySaved(hasExplicitSave(lmsId, profileId));
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -599,7 +622,7 @@ export function ObjectiveSubmissionPanel({
 
     // Hard gate: call out every empty required field before sending to API.
     if (worksheetPayload.kind === "inline-form") {
-      const emptyLines = getEmptyFieldLines(worksheetPayload.data, isObj6);
+      const emptyLines = getEmptyFieldLines(worksheetPayload.data, isObj6, objNumber);
       if (emptyLines.length > 0) {
         const beats: ObjectiveIntroBeat[] = [
           ...emptyLines.map(text => ({ text })),
@@ -747,6 +770,7 @@ export function ObjectiveSubmissionPanel({
     setPhase("ready");
     const fresh = readPending(rubric.lmsId, profile?.id);
     setPending(fresh);
+    setIsExplicitlySaved(hasExplicitSave(rubric.lmsId, profile?.id));
     const chatMediaCount = isObj6 ? whiteboardVideos.length : whiteboardImages.length;
     const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
     const ctx: ReadyContext = {
@@ -758,7 +782,7 @@ export function ObjectiveSubmissionPanel({
       isObj6,
       isWorksheetOnly:  objNumber === 1,
       emptyFieldCount:  hasInlineForm && fresh?.data
-        ? getEmptyFieldLines(fresh.data, isObj6).length
+        ? getEmptyFieldLines(fresh.data, isObj6, objNumber).length
         : 0,
     };
     speakLine(pickReadyLine(ctx));
@@ -885,11 +909,11 @@ export function ObjectiveSubmissionPanel({
             {/* Body — phase-driven */}
             <div className="flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
               {phase === "ready" && (
-                <ReadyView pending={pending} isObj6={isObj6} isWorksheetOnly={objNumber === 1} whiteboardImageCount={whiteboardImages.length}/>
+                <ReadyView pending={pending} isObj6={isObj6} isWorksheetOnly={objNumber === 1} whiteboardImageCount={whiteboardImages.length} objNumber={objNumber} isExplicitlySaved={isExplicitlySaved}/>
               )}
               {phase === "submitting" && <SubmittingPanel/>}
               {phase === "result" && result && (
-                <ResultView result={result}/>
+                <ResultView result={result} objNumber={objNumber}/>
               )}
             </div>
 
@@ -976,34 +1000,51 @@ function ActionButton({
 }
 
 function ReadyView({
-  pending, isObj6, isWorksheetOnly, whiteboardImageCount,
+  pending, isObj6, isWorksheetOnly, whiteboardImageCount, objNumber, isExplicitlySaved,
 }: {
   pending:              PendingPayload | null;
   isObj6:               boolean;
   isWorksheetOnly:      boolean;
   whiteboardImageCount: number;
+  objNumber?:           number;
+  isExplicitlySaved:    boolean;
 }) {
   const hasInline   = pending?.data && Object.keys(pending.data).length > 0;
   const hasFile     = !!pending?.worksheetFile;
   const mediaCount  = pending?.mediaUrls?.length ?? 0;
   const usingWhiteboardFallback = !isObj6 && mediaCount === 0 && whiteboardImageCount > 0;
 
-  const mediaLabel  = isObj6 ? "Avatar video" : "Output image";
+  const isObj2      = objNumber === 2;
+  const mediaLabel  = isObj6 ? "Avatar image" : isObj2 ? "Screenshots (×3)" : "Output image";
   const mediaOk     = mediaCount > 0 || usingWhiteboardFallback;
   const mediaDetail = mediaCount > 0
     ? `${mediaCount} uploaded`
     : usingWhiteboardFallback
-      ? "Will use most recent whiteboard image"
+      ? isObj2
+        ? `Will use first ${Math.min(whiteboardImageCount, 3)} whiteboard image${whiteboardImageCount !== 1 ? "s" : ""}`
+        : "Will use most recent whiteboard image"
       : isObj6
-        ? "Upload your MP4 in the worksheet"
-        : "Generate the output in the whiteboard";
+        ? "Generate avatar in the whiteboard, then come back"
+        : isObj2
+          ? "Drop 3 screenshots in chat: ChatGPT, Gemini, Claude — in that order"
+          : "Generate the output in the whiteboard";
+
+  // Worksheet row: ✓ only when explicitly saved. Draft = in progress.
+  const worksheetOk     = isExplicitlySaved && !!(hasInline || hasFile);
+  const worksheetDetail = hasFile
+    ? `📄 ${pending!.worksheetFile!.filename}`
+    : isExplicitlySaved && hasInline
+      ? "Filled in — ready"
+      : hasInline
+        ? "In progress — save the worksheet when ready"
+        : "Not yet — open the worksheet and fill it in";
 
   return (
     <div className="space-y-2">
       <div className="text-[12px] font-display font-bold text-white/80">What I&apos;ll grade</div>
       <Row label="Worksheet"
-           ok={!!(hasInline || hasFile)}
-           detail={hasFile ? `📄 ${pending!.worksheetFile!.filename}` : hasInline ? "Filled in — ready" : "Not yet — open the worksheet and fill it in"}/>
+           ok={worksheetOk}
+           detail={worksheetDetail}/>
       {isWorksheetOnly ? (
         whiteboardImageCount > 0 ? (
           <Row label="Output image" ok detail="Generated in whiteboard"/>
@@ -1047,8 +1088,9 @@ function SubmittingPanel() {
   );
 }
 
-function ResultView({ result }: { result: FinalResult }) {
+function ResultView({ result, objNumber }: { result: FinalResult; objNumber: number }) {
   const meta = TIER_META[result.tier];
+  const canvasLabel = objNumber === 1 ? "Canvas It (25%)" : "Think It Canvas (25%)";
   return (
     <div className="space-y-3">
       <div className="flex items-center gap-3">
@@ -1070,7 +1112,7 @@ function ResultView({ result }: { result: FinalResult }) {
 
       <div className="space-y-1.5 text-[12px]" style={{ color: "rgba(255,255,255,0.85)" }}>
         <StageRow
-          label="Think It Canvas (25%)"
+          label={canvasLabel}
           score={result.canvas.score}
           status={result.canvas.passed ? "pass" : "fail"}
           weight={25}
@@ -1102,12 +1144,22 @@ function ResultView({ result }: { result: FinalResult }) {
           {result.canvas.fieldFeedback.success     && <div>• <b>Success:</b> {result.canvas.fieldFeedback.success}</div>}
         </div>
       )}
-      {result.storyIt && !result.storyIt.passed && !result.storyIt.funnyTestBlocked && (
+      {result.storyIt && !result.storyIt.passed && (
         <div className="text-[11px] space-y-1 p-2 rounded-md" style={{ background: "rgba(255,107,107,0.05)", border: "1px solid rgba(255,107,107,0.2)" }}>
           <div className="font-display font-bold mb-1" style={{ color: "#FF6B6B" }}>Story It checks</div>
-          {!result.storyIt.checks.setupTwistPayoff.passed    && <div>• {result.storyIt.checks.setupTwistPayoff.line}</div>}
-          {!result.storyIt.checks.panel3IsPunchline.passed   && <div>• {result.storyIt.checks.panel3IsPunchline.line}</div>}
-          {!result.storyIt.checks.characterConsistent.passed && <div>• {result.storyIt.checks.characterConsistent.line}</div>}
+          {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+          {(result.storyIt as any).checks ? (
+            <>
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {!(result.storyIt as any).checks.setupTwistPayoff.passed    && <div>• {(result.storyIt as any).checks.setupTwistPayoff.line}</div>}
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {!(result.storyIt as any).checks.panel3IsPunchline.passed   && <div>• {(result.storyIt as any).checks.panel3IsPunchline.line}</div>}
+              {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+              {!(result.storyIt as any).checks.characterConsistent.passed && <div>• {(result.storyIt as any).checks.characterConsistent.line}</div>}
+            </>
+          ) : (
+            <div>• {result.storyIt.summary}</div>
+          )}
         </div>
       )}
     </div>
