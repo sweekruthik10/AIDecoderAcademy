@@ -160,17 +160,18 @@ const READY_LINES_GENERIC_PENDING = [
 ];
 
 interface ReadyContext {
-  hasInlineForm:   boolean;
-  hasFile:         boolean;
-  mediaCount:      number;
-  notesLen:        number;
-  whiteboardCount: number;
-  isObj6:          boolean;
-  emptyFieldCount: number;  // required fields that are still blank in the inline form
+  hasInlineForm:    boolean;
+  hasFile:          boolean;
+  mediaCount:       number;
+  notesLen:         number;
+  whiteboardCount:  number;
+  isObj6:           boolean;
+  isWorksheetOnly:  boolean;
+  emptyFieldCount:  number;  // required fields that are still blank in the inline form
 }
 
 function pickReadyLine(ctx: ReadyContext): string {
-  const { hasInlineForm, hasFile, mediaCount, notesLen, whiteboardCount, isObj6, emptyFieldCount } = ctx;
+  const { hasInlineForm, hasFile, mediaCount, notesLen, whiteboardCount, isObj6, isWorksheetOnly, emptyFieldCount } = ctx;
   const hasWorksheet = hasInlineForm || hasFile;
 
   // Nothing yet — gentle, not pushy.
@@ -201,6 +202,7 @@ function pickReadyLine(ctx: ReadyContext): string {
     return "Your notes show you actually thought about it. Let's check the work.";
   }
   if (hasFile && !mediaCount) {
+    if (isWorksheetOnly) return "Worksheet's in. Hit validate when you're ready.";
     return isObj6
       ? "Worksheet's in. Now I just need the video."
       : "Worksheet's in. Where's the comic?";
@@ -397,12 +399,13 @@ export function ObjectiveSubmissionPanel({
       const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
       const ctx: ReadyContext = {
         hasInlineForm,
-        hasFile:         (whiteboardDocs?.length ?? 0) > 0,
-        mediaCount:      chatMediaCount,
-        notesLen:        fresh?.notes?.length ?? 0,
-        whiteboardCount: whiteboardImages.length,
+        hasFile:          (whiteboardDocs?.length ?? 0) > 0 || !!(fresh?.worksheetFile),
+        mediaCount:       chatMediaCount,
+        notesLen:         fresh?.notes?.length ?? 0,
+        whiteboardCount:  whiteboardImages.length,
         isObj6,
-        emptyFieldCount: hasInlineForm && fresh?.data
+        isWorksheetOnly:  objNumber === 1,
+        emptyFieldCount:  hasInlineForm && fresh?.data
           ? getEmptyFieldLines(fresh.data, isObj6).length
           : 0,
       };
@@ -474,24 +477,40 @@ export function ObjectiveSubmissionPanel({
     })
       .then(r => r.ok ? (r.json() as Promise<{ data: Record<string, string | boolean> }>) : null)
       .then(result => {
-        if (!result?.data) return;
-        const filledFields = Object.values(result.data).filter(v =>
-          typeof v === "string" ? v.trim().length > 0 : v === true,
-        ).length;
-        if (filledFields < 2) return;
+        const worksheetFile = { url: latest.url, format: latest.format, filename: latest.filename };
         const draftKey = `aida:worksheet:${lmsId}:${profileId}:draft`;
+        const filledFields = result?.data
+          ? Object.values(result.data).filter(v =>
+              typeof v === "string" ? v.trim().length > 0 : v === true,
+            ).length
+          : 0;
+        // Always register the file in pending so ReadyView shows "📄 filename"
+        // even when extraction returned few/no fields (blank template or OCR miss).
+        // Only include parsed field data when at least 2 fields were extracted.
+        const draftPayload = {
+          ...(filledFields >= 2 ? { data: result!.data } : {}),
+          worksheetFile,
+          updated_at: new Date().toISOString(),
+        };
         try {
-          localStorage.setItem(draftKey, JSON.stringify({
-            data:          result.data,
-            worksheetFile: { url: latest.url, format: latest.format, filename: latest.filename },
-            updated_at:    new Date().toISOString(),
-          }));
+          const existing = readPending(lmsId, profileId);
+          // Merge into existing draft so we don't overwrite manually typed fields
+          const merged = {
+            data: { ...(existing?.data ?? {}), ...(filledFields >= 2 ? result!.data : {}) },
+            worksheetFile,
+            mediaUrls:  existing?.mediaUrls,
+            notes:      existing?.notes,
+            updated_at: new Date().toISOString(),
+          };
+          localStorage.setItem(draftKey, JSON.stringify(merged));
         } catch { return; }
-        window.dispatchEvent(new CustomEvent("aida:worksheet-parsed", {
-          detail: { lmsId, profileId, data: result.data,
-            worksheetFile: { url: latest.url, format: latest.format, filename: latest.filename } },
-        }));
+        if (filledFields >= 2) {
+          window.dispatchEvent(new CustomEvent("aida:worksheet-parsed", {
+            detail: { lmsId, profileId, data: result!.data, worksheetFile },
+          }));
+        }
         setPending(readPending(lmsId, profileId));
+        void draftPayload; // suppress unused-var
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -726,12 +745,13 @@ export function ObjectiveSubmissionPanel({
     const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
     const ctx: ReadyContext = {
       hasInlineForm,
-      hasFile:         (whiteboardDocs?.length ?? 0) > 0,
-      mediaCount:      chatMediaCount,
-      notesLen:        fresh?.notes?.length ?? 0,
-      whiteboardCount: whiteboardImages.length,
-      isObj6:          isObj6,
-      emptyFieldCount: hasInlineForm && fresh?.data
+      hasFile:          (whiteboardDocs?.length ?? 0) > 0 || !!(fresh?.worksheetFile),
+      mediaCount:       chatMediaCount,
+      notesLen:         fresh?.notes?.length ?? 0,
+      whiteboardCount:  whiteboardImages.length,
+      isObj6,
+      isWorksheetOnly:  objNumber === 1,
+      emptyFieldCount:  hasInlineForm && fresh?.data
         ? getEmptyFieldLines(fresh.data, isObj6).length
         : 0,
     };
