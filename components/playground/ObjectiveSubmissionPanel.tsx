@@ -654,7 +654,7 @@ export function ObjectiveSubmissionPanel({
     setPhase("ready");
     const fresh = readPending(rubric.lmsId, profile?.id);
     setPending(fresh);
-    const chatMediaCount = isObj6 ? whiteboardVideos.length : whiteboardImages.length;
+    const chatMediaCount = whiteboardImages.length;
     const hasInlineForm = !!(fresh?.data && Object.keys(fresh.data).length > 0);
     const ctx: ReadyContext = {
       hasInlineForm,
@@ -791,7 +791,7 @@ export function ObjectiveSubmissionPanel({
             {/* Body — phase-driven */}
             <div className="flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
               {phase === "ready" && (
-                <ReadyView pending={pending} isObj6={isObj6} whiteboardImageCount={whiteboardImages.length}/>
+                <ReadyView pending={pending} isObj6={isObj6} objNumber={objNumber} whiteboardImageCount={whiteboardImages.length}/>
               )}
               {phase === "submitting" && <SubmittingPanel/>}
               {phase === "result" && result && (
@@ -882,12 +882,25 @@ function ActionButton({
 }
 
 function ReadyView({
-  pending, isObj6, whiteboardImageCount,
-}: { pending: PendingPayload | null; isObj6: boolean; whiteboardImageCount: number }) {
+  pending, isObj6, objNumber, whiteboardImageCount,
+}: { pending: PendingPayload | null; isObj6: boolean; objNumber: number; whiteboardImageCount: number }) {
   const hasInline   = pending?.data && Object.keys(pending.data).length > 0;
   const hasFile     = !!pending?.worksheetFile;
   const mediaCount  = pending?.mediaUrls?.length ?? 0;
-  const usingWhiteboardFallback = !isObj6 && mediaCount === 0 && whiteboardImageCount > 0;
+  const isObj2      = objNumber === 2;
+  const isObj10     = objNumber === 10;
+  const needsMedia  = isObj6 || isObj2 || isObj10;
+  const usingWhiteboardFallback = needsMedia && mediaCount === 0 && whiteboardImageCount > 0;
+
+  const mediaLabel = isObj6 ? "Avatar image" : isObj2 ? "Screenshots (×3)" : "Comic image";
+  const mediaEmptyDetail = isObj6
+    ? "Generate avatar in the whiteboard, then come back"
+    : isObj2
+      ? "Drop 3 screenshots in chat: ChatGPT, Gemini, Claude — in that order"
+      : "Generate a comic in the whiteboard or upload one";
+  const whiteboardFallbackDetail = isObj2
+    ? `Will use first ${Math.min(whiteboardImageCount, 3)} whiteboard image${whiteboardImageCount !== 1 ? "s" : ""}`
+    : "Will use most recent whiteboard image";
 
   return (
     <div className="space-y-2">
@@ -895,15 +908,17 @@ function ReadyView({
       <Row label="Worksheet"
            ok={!!(hasInline || hasFile)}
            detail={hasFile ? `📄 ${pending!.worksheetFile!.filename}` : hasInline ? "Filled in — ready" : "Not yet — open the worksheet and fill it in"}/>
-      <Row label={isObj6 ? "Avatar video" : "Comic image"}
-           ok={mediaCount > 0 || usingWhiteboardFallback}
-           detail={
-             mediaCount > 0
-               ? `${mediaCount} uploaded`
-               : usingWhiteboardFallback
-                 ? "Will use most recent whiteboard image"
-                 : isObj6 ? "Upload your MP4 in the worksheet" : "Generate a comic in the whiteboard or upload one"
-           }/>
+      {needsMedia && (
+        <Row label={mediaLabel}
+             ok={mediaCount > 0 || usingWhiteboardFallback}
+             detail={
+               mediaCount > 0
+                 ? `${mediaCount} uploaded`
+                 : usingWhiteboardFallback
+                   ? whiteboardFallbackDetail
+                   : mediaEmptyDetail
+             }/>
+      )}
       {pending?.notes && (
         <Row label="Your notes" ok detail={`"${pending.notes.slice(0, 80)}${pending.notes.length > 80 ? "…" : ""}"`}/>
       )}
