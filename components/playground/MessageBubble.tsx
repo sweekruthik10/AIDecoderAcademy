@@ -464,10 +464,11 @@ export function MessageBubble({
               <div>
                 <p className="whitespace-pre-wrap">{message.content}</p>
                 {message.attachmentMeta && message.attachmentMeta.length > 0 && (() => {
-                  // Split into injected-image (img:url), doc (doc:name:url), and plain type badges
+                  // Split into injected-image (img:url), doc (doc:name:url), audio (audio:name:url), and plain type badges
                   const imgEntries   = message.attachmentMeta.filter(m => m.startsWith("img:"));
                   const docEntries   = message.attachmentMeta.filter(m => m.startsWith("doc:"));
-                  const badgeEntries = message.attachmentMeta.filter(m => !m.startsWith("img:") && !m.startsWith("doc:"));
+                  const audioEntries = message.attachmentMeta.filter(m => m.startsWith("audio:"));
+                  const badgeEntries = message.attachmentMeta.filter(m => !m.startsWith("img:") && !m.startsWith("doc:") && !m.startsWith("audio:"));
                   return (
                     <div className="mt-2 flex flex-col gap-1.5">
                       {/* Injected image thumbnails */}
@@ -509,6 +510,35 @@ export function MessageBubble({
                                   <path d="M6 1H2.5a1 1 0 00-1 1v6a1 1 0 001 1h5a1 1 0 001-1V3.5L6 1z" stroke="currentColor" strokeWidth="1"/>
                                   <path d="M6 1v2.5h2.5" stroke="currentColor" strokeWidth="1"/>
                                 </svg>
+                                <span style={{ fontSize: 10, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                                  {filename}
+                                </span>
+                              </a>
+                            );
+                          })}
+                        </div>
+                      )}
+                      {/* Audio chips */}
+                      {audioEntries.length > 0 && (
+                        <div className="flex gap-2 flex-wrap">
+                          {audioEntries.map((item, i) => {
+                            const parts    = item.slice(6).split(":"); // strip "audio:"
+                            const filename = parts[0] ?? "audio";
+                            const url      = parts.slice(1).join(":");
+                            return (
+                              <a key={i} href={url || "#"} target="_blank" rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg no-underline flex-shrink-0"
+                                style={{
+                                  background: "rgba(255,45,120,0.18)",
+                                  border: "1px solid rgba(255,45,120,0.35)",
+                                  color: userTextColor,
+                                  maxWidth: 200,
+                                }}>
+                                <div className="flex items-end gap-[1.5px]" style={{ flexShrink: 0 }}>
+                                  {[2,3,2,4,2,3,2].map((h, j) => (
+                                    <div key={j} className="w-[1.5px] rounded-full" style={{ height: `${h}px`, background: userTextColor }}/>
+                                  ))}
+                                </div>
                                 <span style={{ fontSize: 10, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                                   {filename}
                                 </span>

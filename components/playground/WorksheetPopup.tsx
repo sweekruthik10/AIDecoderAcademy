@@ -193,6 +193,27 @@ export function WorksheetPopup({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schema, lmsId, profileId]);
 
+  // Live update: ObjectiveSubmissionPanel fires this event after auto-parsing
+  // a DOCX the student dropped in chat. If the popup is open, update the form
+  // fields immediately so the student sees pre-filled answers without re-opening.
+  useEffect(() => {
+    if (!schema) return;
+    function onParsed(e: Event) {
+      const { detail } = e as CustomEvent<{
+        lmsId:         string;
+        profileId:     string;
+        data:          Record<string, string | boolean>;
+        worksheetFile: { url: string; format: "pdf" | "docx"; filename: string };
+      }>;
+      if (detail.lmsId !== lmsId || detail.profileId !== profileId) return;
+      setData(detail.data);
+      writer.setDraft(lmsId, detail.data);
+    }
+    window.addEventListener("aida:worksheet-parsed", onParsed);
+    return () => window.removeEventListener("aida:worksheet-parsed", onParsed);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schema, lmsId, profileId]);
+
   // Esc closes
   useEffect(() => {
     if (!open) return;

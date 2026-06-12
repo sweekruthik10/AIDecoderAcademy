@@ -298,8 +298,14 @@ function PlaygroundInner() {
       : null;
     const docBubbleMeta  = docMatch ? [`doc:${docMatch[1]}:${docMatch[2]}`] : [];
 
-    // Merge: image thumbnail first, then doc badge
-    const attachBubbleMeta = [...imgBubbleMeta, ...docBubbleMeta];
+    // If an audio file was injected, extract filename + URL for the bubble badge.
+    const audioMatch     = isCtxMarker
+      ? contextPart.match(/^\[Audio titled "([^"]+)": (https?:\/\/\S+)\]$/)
+      : null;
+    const audioBubbleMeta = audioMatch ? [`audio:${audioMatch[1]}:${audioMatch[2]}`] : [];
+
+    // Merge: image thumbnail first, then doc/audio badges
+    const attachBubbleMeta = [...imgBubbleMeta, ...docBubbleMeta, ...audioBubbleMeta];
 
     // Skip auto-inject when user explicitly dragged a creation into the prompt —
     // that would prepend a second [Image...] marker and extractImageUrl in the API

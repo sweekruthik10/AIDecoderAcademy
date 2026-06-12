@@ -40,9 +40,9 @@ interface Props {
   profile:          { id?: string; display_name?: string; age_group?: string } | null;
   whiteboardImages: WhiteboardImageMessage[];   // recent images from whiteboard chat
   // Worksheet docs the kid dropped into chat (priority: popup wins, this is fallback)
-  whiteboardDocs?:  { url: string; filename: string; format: "pdf" | "docx" }[];
-  // Videos the kid dropped into chat (sole source for OBJ 6 avatar MP4 now)
+  whiteboardDocs?:   { url: string; filename: string; format: "pdf" | "docx" }[];
   whiteboardVideos?: { url: string; filename: string }[];
+  whiteboardAudio?:  { url: string; filename: string }[];
   onClose:          () => void;
   onComplete:       (composite: number, tier: FinalResult["tier"]) => Promise<void>;
 }
@@ -279,7 +279,7 @@ function clearDraft(lmsId: string, profileId?: string) {
 }
 
 export function ObjectiveSubmissionPanel({
-  open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], onClose, onComplete,
+  open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], whiteboardAudio = [], onClose, onComplete,
 }: Props) {
   const objNumber     = (() => { const m = rubric.lmsId.match(/l1-0?(\d+)/); return m ? parseInt(m[1], 10) : 10; })();
   const isObj6        = objNumber === 6;
@@ -295,6 +295,11 @@ export function ObjectiveSubmissionPanel({
   const speakRef         = useRef<SpeakHandle | null>(null);
   const validateAbortRef = useRef<AbortController | null>(null);
   const { setLast: publishValidator } = useValidatorWriter();
+  const whiteboardImagesRef = useRef(whiteboardImages);
+  const whiteboardDocsRef   = useRef(whiteboardDocs);
+  const whiteboardVideosRef = useRef(whiteboardVideos);
+  const whiteboardAudioRef  = useRef(whiteboardAudio);
+  const parsedDocUrlsRef    = useRef(new Set<string>());
 
   // ── Speak helpers ────────────────────────────────────────────────────────
   // We track an "active speech generation" id so that if a new speak* call
@@ -439,6 +444,59 @@ export function ObjectiveSubmissionPanel({
     return () => cancelAnimationFrame(raf);
   }, [text, open]);
 
+  // Keep refs in sync with props so handleValidate always reads the latest media.
+  useEffect(() => {
+    whiteboardImagesRef.current = whiteboardImages;
+    whiteboardDocsRef.current   = whiteboardDocs;
+    whiteboardVideosRef.current = whiteboardVideos;
+    whiteboardAudioRef.current  = whiteboardAudio;
+  }, [whiteboardImages, whiteboardDocs, whiteboardVideos, whiteboardAudio]);
+
+  // Auto-parse: when a DOCX is dropped into chat, extract its field values and
+  // write them to localStorage so WorksheetPopup pre-fills without a re-open.
+  useEffect(() => {
+    if (whiteboardDocs.length === 0 || !profile?.id) return;
+    const latest    = whiteboardDocs[whiteboardDocs.length - 1];
+    const lmsId     = rubric.lmsId;
+    const profileId = profile.id;
+    if (parsedDocUrlsRef.current.has(latest.url)) return;
+    if (latest.format !== "docx") return;
+    const existing = readPending(lmsId, profileId);
+    const filledCount = existing?.data
+      ? Object.values(existing.data).filter(v => typeof v === "string" ? v.trim().length > 0 : v === true).length
+      : 0;
+    if (filledCount > 2) return;
+    parsedDocUrlsRef.current.add(latest.url);
+    fetch("/api/aida/parse-worksheet", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ url: latest.url, format: latest.format, lmsId }),
+    })
+      .then(r => r.ok ? (r.json() as Promise<{ data: Record<string, string | boolean> }>) : null)
+      .then(result => {
+        if (!result?.data) return;
+        const filledFields = Object.values(result.data).filter(v =>
+          typeof v === "string" ? v.trim().length > 0 : v === true,
+        ).length;
+        if (filledFields < 2) return;
+        const draftKey = `aida:worksheet:${lmsId}:${profileId}:draft`;
+        try {
+          localStorage.setItem(draftKey, JSON.stringify({
+            data:          result.data,
+            worksheetFile: { url: latest.url, format: latest.format, filename: latest.filename },
+            updated_at:    new Date().toISOString(),
+          }));
+        } catch { return; }
+        window.dispatchEvent(new CustomEvent("aida:worksheet-parsed", {
+          detail: { lmsId, profileId, data: result.data,
+            worksheetFile: { url: latest.url, format: latest.format, filename: latest.filename } },
+        }));
+        setPending(readPending(lmsId, profileId));
+      })
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [whiteboardDocs.length, rubric.lmsId, profile?.id]);
+
   // ── Validate ─────────────────────────────────────────────────────────────
   function buildWorksheetPayload(p: PendingPayload | null): WorksheetUpload | null {
     if (!p) return null;
@@ -548,7 +606,17 @@ export function ObjectiveSubmissionPanel({
       } else if (objNumber === 10) {
         body = { worksheet: worksheetPayload, comicImageUrls: mediaToUse, notes, whiteboardImages, profile: profilePayload };
       } else {
-        body = { worksheet: worksheetPayload, notes, profile: profilePayload };
+        // Generic objectives — pass all available whiteboard media so the validator
+        // can use whatever the student uploaded (images, docs, audio, video).
+        body = {
+          worksheet:      worksheetPayload,
+          notes,
+          profile:        profilePayload,
+          ...(whiteboardAudio.length  > 0 && { audioUrls:    whiteboardAudio.map(a => a.url) }),
+          ...(whiteboardVideos.length > 0 && { videoUrls:    whiteboardVideos.map(v => v.url) }),
+          ...(whiteboardImages.length > 0 && { screenshotUrls: whiteboardImages.map(i => i.url) }),
+          ...(whiteboardDocs.length   > 0 && { docUrls:      whiteboardDocs.map(d => d.url) }),
+        };
       }
 
       const res = await fetch(validateUrl, {

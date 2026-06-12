@@ -106,17 +106,14 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
   const wantedOutputType = objective?.outputType ?? "image";
   const wantsImages      = wantedOutputType === "image";
 
-  const IMG_MARKER_RE = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
-  const DOC_MARKER_RE = /\[Document titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
-  const VID_MARKER_RE = /\[Video titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const IMG_MARKER_RE   = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const DOC_MARKER_RE   = /\[Document titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const VID_MARKER_RE   = /\[Video titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const AUDIO_MARKER_RE = /\[Audio titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
   const whiteboardImages: { url: string }[] = [];
-  // Chat-uploaded worksheet docs — fallback for the validator when the popup
-  // is empty. Same `[Document titled "X": URL]` marker the chat uses.
-  const whiteboardDocs: { url: string; filename: string; format: "pdf" | "docx" }[] = [];
-  // Chat-uploaded videos — kept for forward-compat; the active OBJ 6 path
-  // now grades an avatar IMAGE (not video) per the GenAlpha spec rewrite.
-  // since the worksheet popup no longer has an upload zone.
+  const whiteboardDocs:   { url: string; filename: string; format: "pdf" | "docx" }[] = [];
   const whiteboardVideos: { url: string; filename: string }[] = [];
+  const whiteboardAudio:  { url: string; filename: string }[] = [];
   for (const m of messages) {
     if (m.isLoading || m.role !== "user" || typeof m.content !== "string") continue;
     for (const match of m.content.matchAll(DOC_MARKER_RE)) {
@@ -130,6 +127,11 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       const url = match[2];
       const filename = match[1] || url.split("/").pop() || "video";
       whiteboardVideos.push({ url, filename });
+    }
+    for (const match of m.content.matchAll(AUDIO_MARKER_RE)) {
+      const url = match[2];
+      const filename = match[1] || url.split("/").pop() || "audio";
+      whiteboardAudio.push({ url, filename });
     }
   }
   if (wantsImages) {
@@ -332,6 +334,7 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
           whiteboardImages={whiteboardImages}
           whiteboardDocs={whiteboardDocs}
           whiteboardVideos={whiteboardVideos}
+          whiteboardAudio={whiteboardAudio}
           onClose={() => setOpen(false)}
           onComplete={async () => {
             // Award XP via the existing engine, same as TeacherDialogue's path.

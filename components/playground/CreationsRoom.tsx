@@ -831,6 +831,64 @@ export function CreationsRoom({
               </span>
             </button>
 
+            {/* Audio file */}
+            <input type="file"
+              accept="audio/mp3,audio/mpeg,audio/wav,audio/ogg,audio/webm,audio/aac,.mp3,.wav,.ogg,.m4a,.aac"
+              style={{ display: "none" }}
+              id="audio-upload-input"
+              onChange={handleFileUpload}/>
+            <button onClick={() => (document.getElementById("audio-upload-input") as HTMLInputElement)?.click()}
+              style={{
+                width: "100%", padding: "18px 14px", borderRadius: 12, cursor: "pointer",
+                border:     "1px solid rgba(255,45,120,0.28)",
+                background:
+                  "linear-gradient(180deg, " +
+                    "rgba(100,10,50,0.32) 0%, " +
+                    "rgba(50,5,28,0.55) 50%, " +
+                    "rgba(35,3,18,0.55) 100%" +
+                  ")",
+                color:      "rgba(255,190,220,0.92)",
+                fontSize:   13, fontWeight: 600, transition: "all 0.2s",
+                display:    "flex", flexDirection: "row", alignItems: "center", gap: 14,
+                textAlign:  "left",
+                boxShadow:  "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(255,45,120,0)",
+              }}
+              onMouseEnter={e => {
+                (e.currentTarget as HTMLElement).style.background =
+                  "linear-gradient(180deg, rgba(100,10,50,0.55) 0%, rgba(50,5,28,0.7) 50%, rgba(35,3,18,0.7) 100%)";
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,45,120,0.85)";
+                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.18), 0 0 22px rgba(255,45,120,0.45)";
+              }}
+              onMouseLeave={e => {
+                (e.currentTarget as HTMLElement).style.background =
+                  "linear-gradient(180deg, rgba(100,10,50,0.32) 0%, rgba(50,5,28,0.55) 50%, rgba(35,3,18,0.55) 100%)";
+                (e.currentTarget as HTMLElement).style.borderColor = "rgba(255,45,120,0.28)";
+                (e.currentTarget as HTMLElement).style.boxShadow   = "inset 0 1px 0 rgba(255,255,255,0.10), 0 0 0 0 rgba(255,45,120,0)";
+              }}
+            >
+              <span style={{
+                width: 40, height: 40, borderRadius: 10, flexShrink: 0,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                background: "linear-gradient(180deg, #FF8FB8 0%, #FF2D78 50%, #C0004F 100%)",
+                border: "1px solid rgba(255,255,255,0.25)",
+                boxShadow: "inset 0 1px 0 rgba(255,255,255,0.45), 0 0 14px rgba(255,45,120,0.55)",
+              }}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                  <path d="M9 18V5l12-2v13" stroke="#3a0020" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+                  <circle cx="6" cy="18" r="3" stroke="#3a0020" strokeWidth="1.8"/>
+                  <circle cx="18" cy="16" r="3" stroke="#3a0020" strokeWidth="1.8"/>
+                </svg>
+              </span>
+              <span style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <span style={{ fontFamily: "var(--font-syne), system-ui, sans-serif", fontWeight: 800, fontSize: 13, color: "white", letterSpacing: "-0.01em" }}>
+                  Upload audio
+                </span>
+                <span style={{ fontSize: 10, color: "rgba(255,143,184,0.7)", fontFamily: "'JetBrains Mono', monospace", letterSpacing: "0.06em" }}>
+                  MP3 · WAV · OGG · AAC
+                </span>
+              </span>
+            </button>
+
             {/* Worksheet document */}
             <input type="file"
               accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
