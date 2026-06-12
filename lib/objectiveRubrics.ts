@@ -439,11 +439,12 @@ export const RUBRICS_L2: ObjectiveRubric[] = [];
 
 import { OBJ10_RUBRIC, type StagedRubric } from "@/lib/obj10Rubric";
 import { OBJ6_STAGED_RUBRIC } from "@/lib/obj6Rubric";
+import { OBJ2_STAGED_RUBRIC } from "@/lib/obj2Rubric";
 
 export type AnyRubric = ObjectiveRubric | StagedRubric;
 
 const SINGLE_RUBRICS: ObjectiveRubric[] = [...RUBRICS_L1, ...RUBRICS_L2];
-const STAGED_RUBRICS: StagedRubric[]    = [OBJ10_RUBRIC, OBJ6_STAGED_RUBRIC];
+const STAGED_RUBRICS: StagedRubric[]    = [OBJ10_RUBRIC, OBJ6_STAGED_RUBRIC, OBJ2_STAGED_RUBRIC];
 
 const singleRubricMap: Record<string, ObjectiveRubric> = Object.fromEntries(
   SINGLE_RUBRICS.map(r => [r.lmsId, r]),

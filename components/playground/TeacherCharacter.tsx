@@ -103,20 +103,32 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
   //      shaped `img:URL` are a second signal for the same thing.
   // Order: oldest → newest, so the validator can grab whiteboardImages.at(-1)
   // for "most recent."
-  const wantedOutputType = objective?.outputType ?? "image";
-  const wantsImages      = wantedOutputType === "image";
+  // Per-objective media overrides — when a validator needs a media type that
+  // doesn't match the objective's outputType (e.g. obj2 needs 3 screenshot
+  // images even though its outputType is "text"). Add future special cases here.
+  const VALIDATOR_MEDIA_OVERRIDES: Record<string, { images?: boolean; audio?: boolean; video?: boolean }> = {
+    "l1-02": { images: true },  // 3 AI screenshots (ChatGPT / Gemini / Claude)
+  };
+  const _override = VALIDATOR_MEDIA_OVERRIDES[lmsId] ?? {};
+  const outputType = objective?.outputType ?? "";
+  const wantsImages = _override.images ?? outputType === "image";
+  const wantsAudio  = _override.audio  ?? outputType === "audio";
+  const wantsVideo  = _override.video  ?? outputType === "video";
 
   const IMG_MARKER_RE = /\[Image titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+  const AUD_MARKER_RE = /\[Audio titled "[^"]*":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
   const DOC_MARKER_RE = /\[Document titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
   const VID_MARKER_RE = /\[Video titled "([^"]*)":\s*(https?:\/\/[^\s\]]+)\s*\]/g;
+
   const whiteboardImages: { url: string }[] = [];
+  const whiteboardAudios: { url: string }[] = [];
   // Chat-uploaded worksheet docs — fallback for the validator when the popup
   // is empty. Same `[Document titled "X": URL]` marker the chat uses.
   const whiteboardDocs: { url: string; filename: string; format: "pdf" | "docx" }[] = [];
   // Chat-uploaded videos — kept for forward-compat; the active OBJ 6 path
   // now grades an avatar IMAGE (not video) per the GenAlpha spec rewrite.
-  // since the worksheet popup no longer has an upload zone.
   const whiteboardVideos: { url: string; filename: string }[] = [];
+
   for (const m of messages) {
     if (m.isLoading || m.role !== "user" || typeof m.content !== "string") continue;
     for (const match of m.content.matchAll(DOC_MARKER_RE)) {
@@ -132,10 +144,11 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
       whiteboardVideos.push({ url, filename });
     }
   }
+
+  // Collect images when this objective's validator needs them
   if (wantsImages) {
     for (const m of messages) {
       if (m.isLoading) continue;
-      // AI-generated image messages
       if (m.role === "assistant"
           && m.outputType === "image"
           && typeof m.content === "string"
@@ -143,16 +156,36 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
         whiteboardImages.push({ url: m.content });
         continue;
       }
-      // User-attached images — parse content markers + attachmentMeta tags
       if (m.role === "user" && typeof m.content === "string") {
-        const matches = m.content.matchAll(IMG_MARKER_RE);
-        for (const match of matches) whiteboardImages.push({ url: match[1] });
+        for (const match of m.content.matchAll(IMG_MARKER_RE))
+          whiteboardImages.push({ url: match[1] });
         if (Array.isArray(m.attachmentMeta)) {
-          for (const tag of m.attachmentMeta) {
-            if (typeof tag === "string" && tag.startsWith("img:")) {
+          for (const tag of m.attachmentMeta)
+            if (typeof tag === "string" && tag.startsWith("img:"))
               whiteboardImages.push({ url: tag.slice(4) });
-            }
-          }
+        }
+      }
+    }
+  }
+
+  // Collect audio when this objective's validator needs it
+  if (wantsAudio) {
+    for (const m of messages) {
+      if (m.isLoading) continue;
+      if (m.role === "assistant"
+          && m.outputType === "audio"
+          && typeof m.content === "string"
+          && m.content.startsWith("http")) {
+        whiteboardAudios.push({ url: m.content });
+        continue;
+      }
+      if (m.role === "user" && typeof m.content === "string") {
+        for (const match of m.content.matchAll(AUD_MARKER_RE))
+          whiteboardAudios.push({ url: match[1] });
+        if (Array.isArray(m.attachmentMeta)) {
+          for (const tag of m.attachmentMeta)
+            if (typeof tag === "string" && tag.startsWith("audio:"))
+              whiteboardAudios.push({ url: tag.slice(6) });
         }
       }
     }
@@ -330,6 +363,7 @@ export function TeacherCharacter({ objectiveId, messages, profile, onObjectiveCo
           rubric={stagedRubric}
           profile={profile}
           whiteboardImages={whiteboardImages}
+          whiteboardAudios={whiteboardAudios}
           whiteboardDocs={whiteboardDocs}
           whiteboardVideos={whiteboardVideos}
           onClose={() => setOpen(false)}

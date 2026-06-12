@@ -39,6 +39,7 @@ interface Props {
   rubric:           StagedRubric;
   profile:          { id?: string; display_name?: string; age_group?: string } | null;
   whiteboardImages: WhiteboardImageMessage[];   // recent images from whiteboard chat
+  whiteboardAudios?: { url: string }[];         // recent audio from whiteboard chat
   // Worksheet docs the kid dropped into chat (priority: popup wins, this is fallback)
   whiteboardDocs?:  { url: string; filename: string; format: "pdf" | "docx" }[];
   // Videos the kid dropped into chat (sole source for OBJ 6 avatar MP4 now)
@@ -52,6 +53,20 @@ interface Props {
 // Each key matches the exact field id used in worksheetSchemas.ts / validators.
 // Only fires for completely empty fields; vague-but-filled fields go to SAGE's
 // rubric grading (she'll call them out there with specific feedback).
+
+const OBJ1_FIELD_LINES: Record<string, string> = {
+  intent:      "Intent — blank. What reaction do you want the room to have? Start there.",
+  assumptions: "Assumptions — empty. What are you betting ChatGPT will do with your prompt?",
+  audience:    "Audience — nothing. 'My class' is too broad. Name one person in the room.",
+  success:     "Success — also blank. What would the room actually do if it landed?",
+};
+
+const OBJ2_FIELD_LINES: Record<string, string> = {
+  intent:      "Intent — blank. What do you want to learn from comparing 3 AIs? Start there.",
+  assumptions: "Assumptions — empty. How do you predict each AI will respond differently?",
+  audience:    "Audience — nothing. Who's actually reading this comparison?",
+  success:     "Success — blank. What specific difference would prove the test worked?",
+};
 
 const OBJ6_FIELD_LINES: Record<string, string> = {
   intent:            "Intent — blank. What is this avatar actually for? Start there.",
@@ -82,8 +97,12 @@ const OBJ10_FIELD_LINES: Record<string, string> = {
 function getEmptyFieldLines(
   data: Record<string, string | boolean>,
   isObj6: boolean,
+  objNumber?: number,
 ): string[] {
-  const map = isObj6 ? OBJ6_FIELD_LINES : OBJ10_FIELD_LINES;
+  const map = isObj6 ? OBJ6_FIELD_LINES
+    : objNumber === 1 ? OBJ1_FIELD_LINES
+    : objNumber === 2 ? OBJ2_FIELD_LINES
+    : OBJ10_FIELD_LINES;
   return Object.entries(map)
     .filter(([key]) => {
       const val = data[key];
@@ -279,7 +298,7 @@ function clearDraft(lmsId: string, profileId?: string) {
 }
 
 export function ObjectiveSubmissionPanel({
-  open, rubric, profile, whiteboardImages, whiteboardDocs = [], whiteboardVideos = [], onClose, onComplete,
+  open, rubric, profile, whiteboardImages, whiteboardAudios = [], whiteboardDocs = [], whiteboardVideos = [], onClose, onComplete,
 }: Props) {
   const objNumber     = (() => { const m = rubric.lmsId.match(/l1-0?(\d+)/); return m ? parseInt(m[1], 10) : 10; })();
   const isObj6        = objNumber === 6;
@@ -398,7 +417,7 @@ export function ObjectiveSubmissionPanel({
         whiteboardCount: whiteboardImages.length,
         isObj6,
         emptyFieldCount: hasInlineForm && fresh?.data
-          ? getEmptyFieldLines(fresh.data, isObj6).length
+          ? getEmptyFieldLines(fresh.data, isObj6, objNumber).length
           : 0,
       };
       speakLine(pickReadyLine(ctx));
@@ -516,7 +535,7 @@ export function ObjectiveSubmissionPanel({
 
     // Hard gate: call out every empty required field before sending to API.
     if (worksheetPayload.kind === "inline-form") {
-      const emptyLines = getEmptyFieldLines(worksheetPayload.data, isObj6);
+      const emptyLines = getEmptyFieldLines(worksheetPayload.data, isObj6, objNumber);
       if (emptyLines.length > 0) {
         const beats: ObjectiveIntroBeat[] = [
           ...emptyLines.map(text => ({ text })),
@@ -664,7 +683,7 @@ export function ObjectiveSubmissionPanel({
       whiteboardCount: whiteboardImages.length,
       isObj6:          isObj6,
       emptyFieldCount: hasInlineForm && fresh?.data
-        ? getEmptyFieldLines(fresh.data, isObj6).length
+        ? getEmptyFieldLines(fresh.data, isObj6, objNumber).length
         : 0,
     };
     speakLine(pickReadyLine(ctx));
@@ -791,7 +810,7 @@ export function ObjectiveSubmissionPanel({
             {/* Body — phase-driven */}
             <div className="flex-1 overflow-y-auto pr-1" style={{ scrollbarWidth: "thin" }}>
               {phase === "ready" && (
-                <ReadyView pending={pending} isObj6={isObj6} whiteboardImageCount={whiteboardImages.length}/>
+                <ReadyView pending={pending} isObj6={isObj6} objNumber={objNumber} whiteboardImageCount={whiteboardImages.length}/>
               )}
               {phase === "submitting" && <SubmittingPanel/>}
               {phase === "result" && result && (
@@ -882,12 +901,25 @@ function ActionButton({
 }
 
 function ReadyView({
-  pending, isObj6, whiteboardImageCount,
-}: { pending: PendingPayload | null; isObj6: boolean; whiteboardImageCount: number }) {
+  pending, isObj6, objNumber, whiteboardImageCount,
+}: { pending: PendingPayload | null; isObj6: boolean; objNumber: number; whiteboardImageCount: number }) {
   const hasInline   = pending?.data && Object.keys(pending.data).length > 0;
   const hasFile     = !!pending?.worksheetFile;
   const mediaCount  = pending?.mediaUrls?.length ?? 0;
-  const usingWhiteboardFallback = !isObj6 && mediaCount === 0 && whiteboardImageCount > 0;
+  const isObj2      = objNumber === 2;
+  const usingWhiteboardFallback = !isObj6 && !isObj2 && mediaCount === 0 && whiteboardImageCount > 0;
+
+  const mediaLabel  = isObj6 ? "Avatar video" : isObj2 ? "3 screenshots" : "Comic image";
+  const mediaOk     = isObj2 ? whiteboardImageCount >= 3 : mediaCount > 0 || usingWhiteboardFallback;
+  const mediaDetail = isObj2
+    ? whiteboardImageCount >= 3
+      ? `${whiteboardImageCount} screenshot${whiteboardImageCount > 3 ? "s" : ""} in chat — using first 3`
+      : `${whiteboardImageCount}/3 screenshots in chat — drop ChatGPT, Gemini, Claude in order`
+    : mediaCount > 0
+      ? `${mediaCount} uploaded`
+      : usingWhiteboardFallback
+        ? "Will use most recent whiteboard image"
+        : isObj6 ? "Upload your MP4 in the worksheet" : "Generate a comic in the whiteboard or upload one";
 
   return (
     <div className="space-y-2">
@@ -895,15 +927,7 @@ function ReadyView({
       <Row label="Worksheet"
            ok={!!(hasInline || hasFile)}
            detail={hasFile ? `📄 ${pending!.worksheetFile!.filename}` : hasInline ? "Filled in — ready" : "Not yet — open the worksheet and fill it in"}/>
-      <Row label={isObj6 ? "Avatar video" : "Comic image"}
-           ok={mediaCount > 0 || usingWhiteboardFallback}
-           detail={
-             mediaCount > 0
-               ? `${mediaCount} uploaded`
-               : usingWhiteboardFallback
-                 ? "Will use most recent whiteboard image"
-                 : isObj6 ? "Upload your MP4 in the worksheet" : "Generate a comic in the whiteboard or upload one"
-           }/>
+      <Row label={mediaLabel} ok={mediaOk} detail={mediaDetail}/>
       {pending?.notes && (
         <Row label="Your notes" ok detail={`"${pending.notes.slice(0, 80)}${pending.notes.length > 80 ? "…" : ""}"`}/>
       )}
@@ -995,12 +1019,18 @@ function ResultView({ result }: { result: FinalResult }) {
           {result.canvas.fieldFeedback.success     && <div>• <b>Success:</b> {result.canvas.fieldFeedback.success}</div>}
         </div>
       )}
-      {result.storyIt && !result.storyIt.passed && !result.storyIt.funnyTestBlocked && (
+      {result.storyIt && !result.storyIt.passed && (
         <div className="text-[11px] space-y-1 p-2 rounded-md" style={{ background: "rgba(255,107,107,0.05)", border: "1px solid rgba(255,107,107,0.2)" }}>
           <div className="font-display font-bold mb-1" style={{ color: "#FF6B6B" }}>Story It checks</div>
-          {!result.storyIt.checks.setupTwistPayoff.passed    && <div>• {result.storyIt.checks.setupTwistPayoff.line}</div>}
-          {!result.storyIt.checks.panel3IsPunchline.passed   && <div>• {result.storyIt.checks.panel3IsPunchline.line}</div>}
-          {!result.storyIt.checks.characterConsistent.passed && <div>• {result.storyIt.checks.characterConsistent.line}</div>}
+          {(result.storyIt as any).checks ? (
+            <>
+              {!(result.storyIt as any).checks.setupTwistPayoff.passed    && <div>• {(result.storyIt as any).checks.setupTwistPayoff.line}</div>}
+              {!(result.storyIt as any).checks.panel3IsPunchline.passed   && <div>• {(result.storyIt as any).checks.panel3IsPunchline.line}</div>}
+              {!(result.storyIt as any).checks.characterConsistent.passed && <div>• {(result.storyIt as any).checks.characterConsistent.line}</div>}
+            </>
+          ) : (
+            <div>• {result.storyIt.summary}</div>
+          )}
         </div>
       )}
     </div>
