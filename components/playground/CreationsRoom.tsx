@@ -420,7 +420,7 @@ export function CreationsRoom({
     const hasAttachments = injected.length > 0;
     // Allow attachment-only sends — kid can drop a file in and hit Enter
     // without typing anything. Block only when truly empty.
-    if ((!t && !hasAttachments) || isStreaming) return;
+    if ((!t && !hasAttachments) || isStreaming || uploadingIds.size > 0) return;
     // Build context from all injected items (image, doc, saved creations etc.)
     const ctx     = injected.map(buildCreationContext).join("");
     // Output type is ALWAYS what the user selected — injected items are context only
@@ -446,7 +446,7 @@ export function CreationsRoom({
     if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
-  const canSend = (input.trim().length > 0 || injected.length > 0) && !isStreaming;
+  const canSend = (input.trim().length > 0 || injected.length > 0) && !isStreaming && uploadingIds.size === 0;
 
   const injectCreation = (c: Creation) => {
     setInjected(prev => {
