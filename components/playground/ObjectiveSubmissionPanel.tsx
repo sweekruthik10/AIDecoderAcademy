@@ -494,7 +494,7 @@ export function ObjectiveSubmissionPanel({
         };
         try {
           const existing = readPending(lmsId, profileId);
-          // Merge into existing draft so we don't overwrite manually typed fields
+          // Merge into existing draft — preserve any fields the student already typed.
           const merged = {
             data: { ...(existing?.data ?? {}), ...(filledFields >= 2 ? result!.data : {}) },
             worksheetFile,
@@ -504,13 +504,19 @@ export function ObjectiveSubmissionPanel({
           };
           localStorage.setItem(draftKey, JSON.stringify(merged));
         } catch { return; }
-        if (filledFields >= 2) {
-          window.dispatchEvent(new CustomEvent("aida:worksheet-parsed", {
-            detail: { lmsId, profileId, data: result!.data, worksheetFile },
-          }));
-        }
+        // Always dispatch so WorksheetPopup registers the file reference.
+        // Include extracted data only when at least 2 fields are non-empty
+        // (guards against blank-template uploads that return an empty object).
+        window.dispatchEvent(new CustomEvent("aida:worksheet-parsed", {
+          detail: {
+            lmsId,
+            profileId,
+            data:          filledFields >= 2 ? result!.data : {},
+            worksheetFile,
+            filledFields,
+          },
+        }));
         setPending(readPending(lmsId, profileId));
-        void draftPayload; // suppress unused-var
       })
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps

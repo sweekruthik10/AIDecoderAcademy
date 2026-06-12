@@ -204,10 +204,18 @@ export function WorksheetPopup({
         profileId:     string;
         data:          Record<string, string | boolean>;
         worksheetFile: { url: string; format: "pdf" | "docx"; filename: string };
+        filledFields?: number;
       }>;
       if (detail.lmsId !== lmsId || detail.profileId !== profileId) return;
-      setData(detail.data);
-      writer.setDraft(lmsId, detail.data);
+      // Only pre-fill form fields when the extraction actually found content.
+      // If the student uploaded a blank template (0 filled fields), leave
+      // whatever they already typed intact.
+      const hasExtractedData = (detail.filledFields ?? Object.keys(detail.data ?? {}).length) >= 2;
+      if (hasExtractedData) {
+        // Merge parsed data on top of existing to avoid wiping manual edits.
+        setData(prev => ({ ...prev, ...detail.data }));
+        writer.setDraft(lmsId, { ...detail.data });
+      }
     }
     window.addEventListener("aida:worksheet-parsed", onParsed);
     return () => window.removeEventListener("aida:worksheet-parsed", onParsed);
